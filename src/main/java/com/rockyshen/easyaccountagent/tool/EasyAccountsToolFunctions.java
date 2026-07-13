@@ -79,6 +79,24 @@ public final class EasyAccountsToolFunctions {
             @ToolParam(description = "1收藏,0取消") int collect) {
     }
 
+    public record CreateAccountRequest(
+            @ToolParam(description = "账户名称") String name,
+            @ToolParam(description = "初始余额，默认0") String initialMoney,
+            @ToolParam(description = "卡号，可选") String card,
+            @ToolParam(description = "备注，可选") String note) {
+    }
+
+    public record UpdateAccountRequest(
+            @ToolParam(description = "账户 ID") int accountId,
+            @ToolParam(description = "新名称，空字符串表示不修改") String name,
+            @ToolParam(description = "新卡号，空字符串表示不修改") String card,
+            @ToolParam(description = "新备注，空字符串表示不修改") String note,
+            @ToolParam(description = "新豁免金额，空字符串表示不修改") String exemptMoney) {
+    }
+
+    public record AccountIdRequest(@ToolParam(description = "账户 ID") int accountId) {
+    }
+
     public static Function<EmptyRequest, String> listAccounts(LedgerFacade facade) {
         return req -> facade.listAccounts();
     }
@@ -147,6 +165,18 @@ public final class EasyAccountsToolFunctions {
 
     public static Function<ToggleFavoriteRequest, String> toggleFavorite(LedgerFacade facade) {
         return req -> facade.toggleFavorite(req.flowId(), req.collect());
+    }
+
+    public static Function<CreateAccountRequest, String> createAccount(LedgerFacade facade) {
+        return req -> facade.createAccount(req.name(), req.initialMoney(), req.card(), req.note());
+    }
+
+    public static Function<UpdateAccountRequest, String> updateAccount(LedgerFacade facade) {
+        return req -> facade.updateAccount(req.accountId(), req.name(), req.card(), req.note(), req.exemptMoney());
+    }
+
+    public static Function<AccountIdRequest, String> deleteAccount(LedgerFacade facade) {
+        return req -> facade.deleteAccount(req.accountId());
     }
 
     private static String writeByHandle(LedgerFacade facade, WriteFlowRequest req, int handle, int accountToId) {

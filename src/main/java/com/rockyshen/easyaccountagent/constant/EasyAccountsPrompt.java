@@ -11,12 +11,15 @@ public final class EasyAccountsPrompt {
             3. 支出或转账前可通过 listAccounts 确认余额
             4. 调用写入工具，成功后简要汇报金额、分类、账户
             5. 查询类问题使用查询工具
+            6. 账户管理：新增用 createAccount，修改用 updateAccount，删除用 deleteAccount；操作前先 listAccounts 确认 ID
 
             规则：
             - 金额保留两位小数；日期格式 yyyy-MM-dd
             - 优先使用子分类 typeId
             - 内部转账不计入收支分析
             - 禁止编造 ID，必须从工具返回结果中获取
+            - 账户余额变动应通过记账流水完成，updateAccount 不修改余额
+            - 删除账户为软删除（停用），删除前确认用户意图
 
             禁止：重复提交相同流水、绕过服务层直接操作数据
             """;
