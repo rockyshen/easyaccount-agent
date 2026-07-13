@@ -1,0 +1,21 @@
+server:
+  port: ${SERVER_PORT:8088}
+  servlet:
+    encoding:
+      enabled: true
+      force: true
+      charset: UTF-8
+
+spring:
+  application:
+    name: easyaccount-agent
+  config:
+    import: optional:classpath:application-local.yml
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/yd_jz?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true

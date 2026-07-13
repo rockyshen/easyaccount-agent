@@ -1,0 +1,16 @@
+# 树莓派生产覆盖
+
+services:
+  easyaccount-agent:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.pi
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-docker.m.daocloud.io/library/eclipse-temurin:17-jre}
+        JAR_FILE: easyaccount-agent-0.0.1-SNAPSHOT.jar
+    env_file: !override
+      - deploy/.env.docker.pi
+    environment:
+      JVM_MAX: 384m
+    ports: !override
+      - "8088:8088"

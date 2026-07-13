@@ -1,0 +1,8 @@
+target/
+.idea/
+*.iml
+.env.docker
+deploy/.env.docker.pi
+application-local.yml
+src/main/resources/application-local.yml
+.DS_Store

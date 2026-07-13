@@ -1,0 +1,51 @@
+package com.rockyshen.easyaccountagent.agent;
+
+import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver;
+import com.rockyshen.easyaccountagent.constant.EasyAccountsPrompt;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
+
+@Configuration
+public class EasyAccountsAgentConfig {
+
+    @Bean
+    ReactAgent easyAccountAgent(
+            @Qualifier("qwenClientModel") ChatModel chatModel,
+            @Qualifier("easyAccountToolCallbacks") List<ToolCallback> easyAccountToolCallbacks) {
+        return ReactAgent.builder()
+                .name("easyaccount_agent")
+                .model(chatModel)
+                .tools(easyAccountToolCallbacks.toArray(new ToolCallback[0]))
+                .systemPrompt(EasyAccountsPrompt.TEXT)
+                .saver(new MemorySaver())
+                .build();
+    }
+
+    @Bean
+    List<ToolCallback> easyAccountToolCallbacks(
+            @Qualifier("listAccountsTool") ToolCallback listAccountsTool,
+            @Qualifier("listActionsTool") ToolCallback listActionsTool,
+            @Qualifier("listTypesByActionTool") ToolCallback listTypesByActionTool,
+            @Qualifier("getMonthlyFlowsTool") ToolCallback getMonthlyFlowsTool,
+            @Qualifier("searchFlowsTool") ToolCallback searchFlowsTool,
+            @Qualifier("getFlowDetailTool") ToolCallback getFlowDetailTool,
+            @Qualifier("getDashboardTool") ToolCallback getDashboardTool,
+            @Qualifier("addExpenseTool") ToolCallback addExpenseTool,
+            @Qualifier("addIncomeTool") ToolCallback addIncomeTool,
+            @Qualifier("transferMoneyTool") ToolCallback transferMoneyTool,
+            @Qualifier("updateFlowTool") ToolCallback updateFlowTool,
+            @Qualifier("deleteFlowTool") ToolCallback deleteFlowTool,
+            @Qualifier("toggleFavoriteTool") ToolCallback toggleFavoriteTool) {
+        return List.of(
+                listAccountsTool, listActionsTool, listTypesByActionTool,
+                getMonthlyFlowsTool, searchFlowsTool, getFlowDetailTool, getDashboardTool,
+                addExpenseTool, addIncomeTool, transferMoneyTool,
+                updateFlowTool, deleteFlowTool, toggleFavoriteTool);
+    }
+}

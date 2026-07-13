@@ -1,0 +1,15 @@
+ARG BASE_IMAGE=docker.m.daocloud.io/library/eclipse-temurin:17-jre
+ARG JAR_FILE
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+ARG JAR_FILE
+RUN test -n "${JAR_FILE}" || (echo "ERROR: build-arg JAR_FILE 未设置" >&2 && exit 1)
+
+COPY target/${JAR_FILE} app.jar
+RUN test -f app.jar && ! test -d app.jar
+
+ENV JVM_MAX=384m
+
+ENTRYPOINT ["sh", "-c", "exec java -Xms96m -Xmx${JVM_MAX} -XX:+UseG1GC -XX:MaxGCPauseMillis=300 -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/heap-dump.hprof -Djava.security.egd=file:/dev/./urandom -jar app.jar"]

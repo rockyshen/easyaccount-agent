@@ -1,0 +1,8 @@
+# easyaccount-agent 公网映射示例（追加到 /etc/frp/frpc.toml）
+
+[[proxies]]
+name = "easyaccount-agent"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8088
+remotePort = 6088
