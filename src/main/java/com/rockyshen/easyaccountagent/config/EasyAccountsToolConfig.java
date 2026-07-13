@@ -113,4 +113,28 @@ public class EasyAccountsToolConfig {
                 .inputType(EasyAccountsToolFunctions.ToggleFavoriteRequest.class)
                 .build();
     }
+
+    @Bean
+    ToolCallback createAccountTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("createAccount", EasyAccountsToolFunctions.createAccount(facade))
+                .description("新增账户，可设置名称、初始余额、卡号和备注")
+                .inputType(EasyAccountsToolFunctions.CreateAccountRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback updateAccountTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("updateAccount", EasyAccountsToolFunctions.updateAccount(facade))
+                .description("修改账户信息（名称、卡号、备注、豁免金额），不直接修改余额")
+                .inputType(EasyAccountsToolFunctions.UpdateAccountRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback deleteAccountTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("deleteAccount", EasyAccountsToolFunctions.deleteAccount(facade))
+                .description("删除（停用）账户，操作前应先调用 listAccounts 确认账户 ID")
+                .inputType(EasyAccountsToolFunctions.AccountIdRequest.class)
+                .build();
+    }
 }

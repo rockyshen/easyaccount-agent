@@ -43,6 +43,37 @@ public class LedgerFacade {
         return sb.toString();
     }
 
+    public String createAccount(String name, String initialMoney, String card, String note) {
+        try {
+            var account = accountService.createAccount(name, initialMoney, card, note);
+            return String.format("账户创建成功：id=%d, 名称=%s, 初始余额=%s",
+                    account.getId(), account.getAName(), account.getMoney());
+        } catch (Exception e) {
+            return "创建账户失败：" + e.getMessage();
+        }
+    }
+
+    public String updateAccount(int accountId, String name, String card, String note, String exemptMoney) {
+        try {
+            var account = accountService.updateAccount(accountId, name, card, note, exemptMoney);
+            return String.format("账户已更新：id=%d, 名称=%s, 余额=%s, 豁免=%s, 卡号=%s, 备注=%s",
+                    account.getId(), account.getAName(), account.getMoney(),
+                    account.getExemptMoney(), account.getCard(),
+                    account.getNote() == null ? "" : account.getNote());
+        } catch (Exception e) {
+            return "更新账户失败：" + e.getMessage();
+        }
+    }
+
+    public String deleteAccount(int accountId) {
+        try {
+            accountService.deleteAccount(accountId);
+            return "账户 id=" + accountId + " 已停用（软删除）。";
+        } catch (Exception e) {
+            return "删除账户失败：" + e.getMessage();
+        }
+    }
+
     public String listActions() {
         List<Action> actions = actionService.getActions();
         if (actions.isEmpty()) {

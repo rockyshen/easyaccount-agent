@@ -16,6 +16,11 @@ public interface AccountDao {
             + "create_time AS createTime, note FROM account WHERE disable = false OR disable IS NULL")
     List<Account> findByDisableFalse();
 
+    @Insert("INSERT INTO account (money, exempt_money, a_name, card, disable, create_time, note) "
+            + "VALUES (#{money}, #{exemptMoney}, #{aName}, #{card}, #{disable}, #{createTime}, #{note})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    void insert(Account account);
+
     @Update("UPDATE account SET money=#{money}, exempt_money=#{exemptMoney}, a_name=#{aName}, "
             + "card=#{card}, disable=#{disable}, note=#{note} WHERE id=#{id}")
     void update(Account account);
