@@ -1,58 +1,69 @@
 ---
 name: 本地用户登录与多用户隔离
-overview: 放弃 my-biz-platform user-center；基于本库 `user` 表实现登录发永久会话 token（首次登录后免重复输密）、WebSocket/HTTP 鉴权，以及 account/flow 按 user_id 的多用户账本隔离。
+overview: 基于本库 user 表（name + int 密码）登录，签发单端长期 token 实现免登录；仅暴露登录 HTTP + WS；account/flow 按 user_id 隔离；存量测试账本可直接清空。
 todos:
-  - id: verify-user-schema
-    content: 确认 yd_jz.user 表结构，并核对 account/flow 是否已有 user_id（无则补 DDL）
+  - id: ddl-cleanup
+    content: 新增 auth_token、account/flow.user_id；清空测试账本；user_id 置 NOT NULL
     status: pending
   - id: auth-domain
-    content: 新增 User/AuthToken 实体、DAO、AuthService（登录校验、发 token、校验 token、登出）
+    content: User/AuthToken 实体与 DAO；AuthService（登录校验 int 密码、单端踢旧会话、发/验/撤 token）
     status: pending
   - id: auth-api
-    content: 新增 POST /api/auth/login、POST /api/auth/logout、GET /api/auth/me
+    content: POST /api/auth/login、POST /api/auth/logout、GET /api/auth/me
     status: pending
-  - id: auth-context
-    content: 实现 AuthContext（当前用户）+ Token 提取工具，供 HTTP Filter 与 WS Interceptor 复用
+  - id: auth-context-ws
+    content: AuthContext + WS 握手鉴权；threadId=u-{userId}；移除 guest/userId query；异步 worker 传递 userId
     status: pending
-  - id: ws-http-auth
-    content: WS 握手鉴权 + REST/SSE 鉴权；禁止匿名 guest；threadId=userId
+  - id: remove-sse
+    content: 下线/移除 GET /chat SSE，文档与部署说明仅保留 WS
     status: pending
   - id: data-isolation
-    content: account/flow 写入与查询全部按 user_id 隔离，防 IDOR
+    content: account/flow 全链路按 user_id 隔离，防 IDOR
     status: pending
-  - id: docs-migrate
-    content: 更新 usage/deploy 文档；提供 DDL 与存量数据归属迁移说明；废弃 user-center 方案
+  - id: docs
+    content: 更新 usage/deploy；固化密码为 int、单端登录、清空测试数据等决策
     status: pending
 isProject: false
 ---
 
 # 本地 user 表登录 + 免登录会话 + 多用户账本隔离
 
-> **取代** [ws_登录鉴权集成_f66705ce.plan.md](ws_登录鉴权集成_f66705ce.plan.md)（原「调用 my-api Gateway / user-center 校验 JWT」方案作废，不再依赖外部平台）。
+> **取代** [ws_登录鉴权集成_f66705ce.plan.md](ws_登录鉴权集成_f66705ce.plan.md)（user-center 方案已废弃）。
+
+## 已确认约束（2026-07-14）
+
+| 项 | 结论 |
+|----|------|
+| 身份源 | 本库 `user` 表，不调用 my-api |
+| 表结构 | 见下节 DDL（`name` + `password int`） |
+| 存量账本 | **直接清空**测试 `account`/`flow`，不做归属迁移 |
+| 多端 | **禁止多端同时在线**；新登录撤销该用户全部旧 token |
+| 对外通道 | **仅 WS 聊天**；不暴露 SSE（`GET /chat` 下线） |
+| 免登录 | 长期 opaque token + `auth_token` 表；客户端持久化 |
+
+---
 
 ## 1. 背景与目标
 
-### 现状问题
+### 现状
 
-1. **无真实鉴权**：WS 从 query 读客户端自报 `userId`，缺省 `easyaccount-guest`。
-2. **无数据隔离**：`account` / `flow` 查询无 `user_id`，所有连接共享同一账本。
-3. **旧方案依赖外部系统**：调用 my-biz-platform `GET /api/user/current`，运维重、耦合高。
+- WS 信任客户端 `userId`，可 guest 匿名
+- `account`/`flow` 无用户维度，账本全局共享
+- 存在 `GET /chat` SSE，与「仅 WS」目标不符
 
 ### 目标
 
-| 目标 | 说明 |
-|------|------|
-| 本地登录 | 使用本库 `yd_jz.user` 校验用户名/密码，本服务自行签发会话 |
-| 免重复登录 | 首次登录后客户端保存长期 token；之后连 WS / 调 API 只带 token，无需再输密码 |
-| 多用户隔离 | 账户、流水按登录用户隔离；禁止跨用户读写 |
-| 抛弃外部依赖 | 不调用 Gateway / user-center |
+1. 用本地 `user` 登录，签发会话 token
+2. 首次登录后凭 token 免输密码（最长约 30 天，可滑动续期）
+3. 同一用户只允许一个有效会话（后登踢先登）
+4. 账本按 `user_id` 严格隔离
+5. 聊天只走 WebSocket
 
-### 明确不做（本阶段）
+### 本阶段不做
 
-- 手机验证码 / OAuth / 第三方登录
-- 用户自助注册（可先仅支持库内已有用户登录；注册可后续加）
-- 细粒度权限（管理员角色等）
-- 密码找回
+- 注册 / 找回密码 / OAuth
+- 用户自定义收支分类（`action`/`type` 仍全局）
+- 将 `password` 从 `int` 升级为哈希（保持与现表兼容；安全加固另开迭代）
 
 ---
 
@@ -64,49 +75,64 @@ sequenceDiagram
     participant Agent as easyaccount_agent
     participant DB as yd_jz
 
-    Note over Client,DB: 首次登录（仅此需密码）
-    Client->>Agent: POST /api/auth/login<br/>{username, password}
-    Agent->>DB: 查 user 校验密码
-    Agent->>DB: 写入 auth_token（长期会话）
+    Note over Client,DB: 首次或 token 失效：需密码
+    Client->>Agent: POST /api/auth/login<br/>{name, password}
+    Agent->>DB: WHERE name=? AND password=?
+    Agent->>DB: 撤销该 user 全部旧 auth_token
+    Agent->>DB: 插入新 auth_token
     Agent-->>Client: { token, expiresAt, user }
-    Client->>Client: 持久化 token（localStorage / Keychain）
+    Client->>Client: 持久化 token
 
-    Note over Client,DB: 之后免登录（只带 token）
-    Client->>Agent: WS /ws?token=xxx<br/>或 Authorization: Bearer xxx
-    Agent->>DB: 校验 auth_token 未过期且有效
-    Agent->>Agent: AuthContext.set(userId)<br/>threadId=userId
-    Agent-->>Client: connected
-
-    Client->>Agent: chat / 记账工具调用
-    Agent->>DB: account/flow 一律带 user_id 条件
+    Note over Client,DB: 之后免登录
+    Client->>Agent: WS /ws?token=xxx
+    Agent->>DB: 校验唯一未撤销且未过期 token
+    alt 该用户另有新登录已踢掉本 token
+        Agent-->>Client: 握手 401
+    else 有效
+        Agent->>Agent: AuthContext=userId<br/>threadId=u-{id}
+        Agent-->>Client: connected
+        Client->>Agent: chat（仅 WS）
+        Agent->>DB: account/flow 带 user_id
+    end
 ```
 
-**核心原则**：密码只在登录接口出现一次；后续所有通道（WS、HTTP）只认本服务签发的会话 token。
+**HTTP 仅保留鉴权三件套**；业务对话与工具调用一律经 WS。
 
 ---
 
 ## 3. 数据模型
 
-### 3.1 `user` 表（已存在，实现前必须核验）
+### 3.1 已确认：`user` 表
 
-实现第一步：`DESCRIBE user;` / `SHOW CREATE TABLE user;`。
+```sql
+CREATE TABLE user
+(
+    id       INT AUTO_INCREMENT PRIMARY KEY,
+    name     VARCHAR(50) NOT NULL,
+    password INT         NOT NULL,
+    CONSTRAINT user_id_uindex UNIQUE (id)
+) COMMENT '用户表' CHARSET = utf8mb4;
+```
 
-计划内按常见字段做**可替换假设**（以实表为准映射 Entity）：
+| 列 | 映射 |
+|----|------|
+| `id` | 隔离主键 / `AuthContext.userId` |
+| `name` | 登录名（登录 body 字段 `name`） |
+| `password` | **整型**，比对时用 `Integer`/`int` 等值比较，**不做 BCrypt** |
 
-| 假设字段 | 用途 |
-|----------|------|
-| `id` | 主键，整型；全库隔离键 |
-| `username` / `u_name` / `account` | 登录名（以实列为准） |
-| `password` | 密码（见下：哈希策略） |
+Entity 示例字段：`Integer id; String name; Integer password;`
 
-**密码策略（需按现网数据决定）**：
+登录校验：
 
-- 若库内存的是明文或旧 App 自定义编码：登录时按现有规则校验，**不要擅自改成 BCrypt 导致老用户无法登录**；可在校验通过后异步升级哈希（可选后续项）。
-- 若已是 BCrypt/同类哈希：直接用 `PasswordEncoder` 校验。
+```text
+SELECT id, name FROM user WHERE name = #{name} AND password = #{password}
+```
 
-计划默认：先适配「现有可登录」；文档中写明实测结果。
+无行 → 401「用户名或密码错误」（不区分哪边错）。
 
-### 3.2 新增 `auth_token`（会话表，支撑免登录）
+> 说明：`password` 为 int 来自现网表结构，本阶段兼容优先；后续若加固可另加列迁哈希，不在本次范围。
+
+### 3.2 新增 `auth_token`（单端会话）
 
 ```sql
 CREATE TABLE IF NOT EXISTS auth_token (
@@ -121,52 +147,49 @@ CREATE TABLE IF NOT EXISTS auth_token (
   UNIQUE KEY uk_token_hash (token_hash),
   KEY idx_user_id (user_id),
   KEY idx_expires (expires_at)
-) COMMENT '登录会话；客户端持有明文 token，库内只存哈希';
+) COMMENT '单端登录会话；每用户仅允许一条未撤销有效记录';
 ```
 
-**为何用服务端会话表，而不是纯 JWT？**
+**单端在线规则（硬约束）**：
 
-| 方案 | 优点 | 缺点 |
-|------|------|------|
-| 仅长效 JWT（如 30 天） | 实现简单、无表 | 无法主动登出/踢下线；泄露只能等过期 |
-| **opaque token + `auth_token` 表（推荐）** | 可登出、可踢多端、可滑迁过期 | 每次鉴权查一次库（可加短缓存） |
+1. `login` 成功时：`UPDATE auth_token SET revoked=1 WHERE user_id=? AND revoked=0`
+2. 再插入新 token
+3. 旧设备再用旧 token → 校验失败 → WS 握手 401 / `/api/auth/me` 401 → 客户端清本地 token 回登录页
 
-本项目体量小，**推荐 opaque token + 表**，完美支持「免登录 + 主动退出」。
+可选加固（实现时可做）：表上不加 DB 唯一约束「每用户一条有效」，用事务内先撤后插即可，避免并发双插时靠应用层串行（同用户登录加短锁或 `SELECT ... FOR UPDATE` 亦可）。
 
-**Token 生命周期建议**：
+**Token 策略**：
 
-- 默认有效期：**30 天**（`easyaccount.auth.token-ttl-days`）
-- 可选 **滑动续期**：鉴权成功且距过期 < 7 天时，自动把 `expires_at` 延长 30 天（免用户周期性重新登录）
-- 登录接口参数 `rememberMe=true`（默认 true）：发长期 token；若 false 可用更短 TTL（如 1 天）给公共设备
+- 明文：32 字节随机 → Base64URL 发给客户端
+- 库内：`SHA-256` 十六进制
+- TTL：默认 **30 天**（`easyaccount.auth.token-ttl-days`）
+- 滑动续期：剩余不足 **7 天** 时自动延长 30 天
+- `logout`：当前 token `revoked=1`
 
-**安全细节**：
-
-- 发给客户端的是高熵随机串（如 32 bytes → Base64URL）
-- 库内只存 `SHA-256(token)`，避免库泄露直接冒用
-- 登出：`revoked=1`；可选「登出全部设备」按 `user_id` 批量撤销
-
-### 3.3 账本隔离列
+### 3.3 账本隔离 + 清空测试数据
 
 ```sql
--- 若尚无 user_id，则追加（实现前先 SHOW COLUMNS 确认）
-ALTER TABLE account ADD COLUMN user_id INT NULL COMMENT '所属用户' AFTER id;
-ALTER TABLE flow    ADD COLUMN user_id INT NULL COMMENT '所属用户' AFTER id;
+-- 清空测试账本（已确认可删）
+DELETE FROM flow;
+DELETE FROM account;
+
+-- 隔离列
+ALTER TABLE account
+  ADD COLUMN user_id INT NOT NULL COMMENT '所属用户' AFTER id;
+ALTER TABLE flow
+  ADD COLUMN user_id INT NOT NULL COMMENT '所属用户' AFTER id;
+
 CREATE INDEX idx_account_user ON account(user_id);
 CREATE INDEX idx_flow_user ON flow(user_id);
 ```
 
-**存量数据迁移**（上线必做，二选一写进 deploy 清单）：
+脚本建议：`scripts/alter_auth_and_user_isolation.sql`（含 `auth_token` + 上列 + DELETE）。
 
-1. 指定一个「原机主」`user_id`，把现有 account/flow 全部归属给他；或
-2. 若一人一库历史无需共用，直接 `UPDATE ... SET user_id = <adminId>`。
-
-迁移后建议：`user_id` 改为 `NOT NULL`。
-
-**分类字典**：`action` / `type` 默认仍**全局共享**（所有用户同一套收支分类）；若未来要自定义分类再按用户拆。
+`action` / `type`：**全局共享**，不加 `user_id`。
 
 ---
 
-## 4. 鉴权与免登录设计
+## 4. API 与通道
 
 ### 4.1 配置
 
@@ -175,178 +198,128 @@ easyaccount:
   auth:
     enabled: ${EASYACCOUNT_AUTH_ENABLED:true}
     token-ttl-days: ${EASYACCOUNT_AUTH_TOKEN_TTL_DAYS:30}
-    sliding-renew-days: ${EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS:7}  # 剩余不足 N 天则续期
+    sliding-renew-days: ${EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS:7}
 ```
 
-本地开发可 `enabled=false`，但生产默认开启；关闭时需在文档标明「仅开发，数据不隔离风险」。
+### 4.2 仅暴露的 HTTP
 
-### 4.2 HTTP API
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| `POST` | `/api/auth/login` | 无 | body: `{ "name", "password" }`；password 为数字；成功踢掉旧会话 |
+| `POST` | `/api/auth/logout` | Bearer | 撤销当前 token |
+| `GET` | `/api/auth/me` | Bearer | 校验免登录态；附带滑动续期 |
+| `GET` | `/health` | 无 | 探活保留 |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/auth/login` | body: `{ username, password, rememberMe? }` → `{ token, expiresAt, user:{id,username} }` |
-| `POST` | `/api/auth/logout` | Header Bearer；撤销当前 token |
-| `GET` | `/api/auth/me` | 返回当前用户；无效 token → 401 |
-
-成功登录响应示例：
+登录响应：
 
 ```json
 {
-  "token": "opaque-random-string",
-  "expiresAt": "2026-08-13T01:00:00+08:00",
-  "user": { "id": 1, "username": "rocky" }
+  "token": "...",
+  "expiresAt": "2026-08-13T02:00:00+08:00",
+  "user": { "id": 1, "name": "rocky" }
 }
 ```
 
-客户端：**首次保存 token**（Web: `localStorage`/`IndexedDB`；App: Keychain/SecureStore）。之后启动 App **先调 `/api/auth/me`**：
+### 4.3 WebSocket（唯一聊天入口）
 
-- 200 → 直接进主界面，WS 用该 token 连接（免登录）
-- 401 → 跳登录页
+- URL：`ws://host:8088/ws?token={token}`
+- 握手失败（无 token / 无效 / 已被踢 / 过期）→ **HTTP 401**，不建连
+- `threadId = "u-" + userId`
+- **删除** query `userId` 与 guest 逻辑
 
-### 4.3 Token 传递约定
+### 4.4 下线 SSE
 
-与旧 user-center 方案类似的通道习惯，但 **token 含义变为本服务会话**：
+- 移除或禁用 [ChatController.java](src/main/java/com/rockyshen/easyaccountagent/controller/ChatController.java) 的 `GET /chat`
+- 文档、README、deploy 示例删除 SSE 说明
+- 验证：路径应 404 或不映射
 
-1. Header：`Authorization: Bearer {token}`（HTTP / 能设头的客户端优先）
-2. Query：`?token=`（浏览器 WebSocket 常用）
-
-**废弃**：`?userId=` 客户端自报身份。
-
-### 4.4 WebSocket
-
-`WebSocketAuthHandshakeInterceptor`：
-
-1. 提取 token（query → Header）
-2. `AuthService.resolveUser(token)`：查 `auth_token` + join `user`；失败 → 握手 **401**
-3. 成功：`attributes.put("authenticatedUser", user)`；可选滑动续期
-4. `WebSocketHandler`：`threadId = "u-" + user.getId()`（Agent 会话记忆按用户隔离）
-5. 删除 `resolveUserId` / guest 回落
-
-### 4.5 REST / SSE（`GET /chat`）
-
-增加同一套 Token 过滤器（或拦截器），避免只护住 WS、HTTP 仍裸奔。未登录不得查账/记账。
-
-### 4.6 `AuthContext`
+### 4.5 AuthContext（WS worker）
 
 ```text
-Filter / WS Interceptor 校验通过后：
-  AuthContext.setUserId(userId)
-业务层（LedgerFacade / *Service / DAO）：
-  一律读取 AuthContext.requireUserId()
-请求结束：
-  AuthContext.clear()
+握手成功 → session attributes 存 AuthenticatedUser
+收到 chat → 提交异步 worker 前捕获 userId
+worker 内 AuthContext.set(userId) → Agent/Tools/DAO → finally clear
 ```
 
-WS 场景注意：异步线程跑 Agent 时，要在提交到 worker 前 **捕获 userId 并传入**，或在 worker 开头 `AuthContext.set`，避免 ThreadLocal 丢上下文。
+所有 Ledger 工具依赖 `AuthContext.requireUserId()`，禁止信任客户端乱传归属。
 
 ---
 
-## 5. 多用户数据隔离（硬要求）
+## 5. 多用户数据隔离
 
-所有账本读写必须带当前 `userId`：
+| 层 | 要点 |
+|----|------|
+| Entity | `Account`/`Flow` 增加 `userId` |
+| DAO | 查询/更新/删除带 `user_id`；insert 写入当前用户 |
+| Service | `findById(id, userId)`；跨用户返回空/业务错误 |
+| Facade | 工具入参 accountId/flowId 必须属于当前用户 |
 
-| 层 | 改动要点 |
-|----|----------|
-| `AccountDao` | `findByDisableFalse` → `WHERE user_id=#{userId} AND ...`；`findById` 增加 userId 条件 |
-| `FlowDao` / `FlowSelectProvider` | 列表、详情、增删改均加 `user_id` |
-| `AccountService` / `FlowService` | create 时写入 `user_id`；update/delete 前校验归属 |
-| `LedgerFacade` 工具 | 不信任工具参数里的「他人账户 id」：先 `getOriginAccountById(id, userId)`，为空则拒绝 |
+防 IDOR：用户 B 使用用户 A 的 `accountId` 调用 `addExpense` / `deleteAccount` → 失败。
 
-**防 IDOR 示例**：用户 A 不能对账户 id=B 的记录 `deleteAccount` / `addExpense`。
-
-信用卡相关逻辑（可用额度、还款）保持不变，仅在查询/更新时叠加 `user_id`。
+信用卡额度逻辑不变，仅叠加 `user_id` 条件。
 
 ---
 
-## 6. 代码落点（相对旧方案的替换关系）
-
-| 旧方案（已废弃） | 新方案 |
-|------------------|--------|
-| `UserCenterAuthClient` 调 Gateway | `AuthService` + `UserDao` / `AuthTokenDao` 查本地库 |
-| `MY_BIZ_GATEWAY_URL` | 删除；改为 `token-ttl-days` 等本地配置 |
-| JWT 来自平台 | opaque session token 本服务签发 |
-| `threadId=workNumber` | `threadId=u-{userId}` |
-| 仅 WS 鉴权 | WS + HTTP 登录态 + 数据隔离 |
-
-新建包建议：`com.rockyshen.easyaccountagent.auth` / `...entity.User` / `...dao.UserDao`。
-
-涉及改造的现有文件（非穷尽）：
-
-- [WebSocketHandler.java](src/main/java/com/rockyshen/easyaccountagent/controller/WebSocketHandler.java)
-- [WebSocketConfig.java](src/main/java/com/rockyshen/easyaccountagent/config/WebSocketConfig.java)
-- [ChatController.java](src/main/java/com/rockyshen/easyaccountagent/controller/ChatController.java)
-- [AccountDao.java](src/main/java/com/rockyshen/easyaccountagent/dao/AccountDao.java) / [FlowDao.java](src/main/java/com/rockyshen/easyaccountagent/dao/FlowDao.java) / [FlowSelectProvider.java](src/main/java/com/rockyshen/easyaccountagent/dao/FlowSelectProvider.java)
-- Account / Flow 实体与 Facade/Service 全链路
-- [docs/easyaccounts-agent-usage.md](docs/easyaccounts-agent-usage.md)、deploy 环境变量示例
-
-DDL 脚本建议放：`scripts/alter_auth_and_user_isolation.sql`。
-
----
-
-## 7. 客户端协议（对接说明）
+## 6. 客户端协议
 
 **首次：**
 
-1. `POST /api/auth/login` → 存 `token`
-2. `ws://host:8088/ws?token={token}`
+1. `POST /api/auth/login` `{ name, password }` → 存 token  
+2. `WS /ws?token=`
 
-**之后（免登录）：**
+**免登录启动：**
 
-1. App 启动读本地 `token` → `GET /api/auth/me`
-2. 有效则直接 `WS ?token=`，不出现登录页
-3. 401 / 握手失败 → 清本地 token，回到登录页
+1. 读本地 token → `GET /api/auth/me`  
+2. 200 → 直接连 WS  
+3. 401（含被其他端踢下线）→ 清 token → 登录页  
 
-**登出：**
+**登出：** `POST /api/auth/logout` + 清本地 token  
 
-1. `POST /api/auth/logout`（带 token）
-2. 清除本地 token
-
-旧协议 `ws://...?userId=xxx` **下线**。
+**被踢感知：** 旧端 WS 重连或心跳式 `/me` 收到 401 即可提示「已在其他设备登录」。
 
 ---
 
-## 8. 关键决策摘要
+## 7. 关键决策摘要
 
-| 决策 | 选择 | 理由 |
-|------|------|------|
-| 身份源 | 本地 `user` 表 | 用户放弃 my-api user-center |
-| 免登录 | 长期 opaque token + `auth_token` 表 | 可撤销、可滑动续期，比纯 JWT 更适合「登出」 |
-| 鉴权时机 | WS Handshake + HTTP Filter | 未登录不建连、不入业务 |
-| 隔离键 | `user.id` → `account.user_id` / `flow.user_id` | 真正多用户账本 |
-| 分类字典 | action/type 仍全局 | 改动小；用户自定义分类留待后续 |
-| 匿名 | 禁止 guest | 与隔离目标一致 |
-
----
-
-## 9. 实施顺序
-
-1. **核表**：`user` 字段、密码形态；`account`/`flow` 是否已有 `user_id`
-2. **DDL**：`auth_token` + 隔离列 + 存量归属迁移
-3. **Auth 域**：DAO / Service / login·logout·me API
-4. **通道鉴权**：Filter + WS Interceptor + AuthContext（含异步传递）
-5. **数据隔离**：DAO/Service/Facade 全链路加 `user_id`
-6. **文档与回归**：双用户串数据、免登录续连、登出失效、过期 token
+| 决策 | 选择 |
+|------|------|
+| 登录字段 | `name` + `password`(int) 等值匹配 |
+| 免登录 | opaque token + `auth_token`，TTL 30 天 + 滑动续期 |
+| 单端 | 登录时撤销该用户全部旧 token |
+| 存量数据 | `DELETE` 测试 account/flow 后加 `user_id NOT NULL` |
+| 聊天通道 | 仅 WS；下线 SSE `/chat` |
+| 分类 | action/type 全局共享 |
 
 ---
 
-## 10. 验证计划
+## 8. 实施顺序
 
-1. 错误密码登录 → 401，无 token
-2. 正确登录 → 返回 token；杀进程重启客户端，仅用 token 连 WS 成功（**免登录**）
-3. 登出后再用原 token 连 WS / 调 API → 401
-4. 用户 A 创建账户后，用户 B 的 `listAccounts` **看不到** A 的账户
-5. 用户 B 对 A 的 `accountId` 调用 `addExpense` / `deleteAccount` → 失败
-6. 过期 token（或改库 `expires_at`）→ 401，需重新登录
-7. 滑动续期：临近过期访问 `/me` 后 `expires_at` 延长
-8. `EASYACCOUNT_AUTH_ENABLED=false` 仅开发可用，文档警告生产勿关
+1. DDL：`auth_token` + 清空 account/flow + 加 `user_id`
+2. Auth 域：UserDao / AuthTokenDao / AuthService / 三个 HTTP 接口
+3. WS 握手鉴权 + AuthContext（含异步）+ 去 guest
+4. 下线 `GET /chat`
+5. account/flow 全链路隔离
+6. 文档与回归
 
 ---
 
-## 11. 风险与待确认清单
+## 9. 验证计划
 
-- [ ] `user` 表真实列名与密码存储格式（明文 / 自定义 / BCrypt）
-- [ ] 现网是否已有多用户数据；存量 `user_id` 归属策略
-- [ ] 是否允许多端同时在线（当前设计默认允许多 token；若要「单端登录」则登录时撤销该用户旧 token）
-- [ ] `GET /chat` SSE 是否仍对外提供（若提供必须同源鉴权）
+1. 错误 `name`/`password` → 401  
+2. 登录成功 → token；重启客户端仅凭 token 连 WS 成功  
+3. 同一用户二次登录 → 旧 token `/me` 与 WS 均 401（**单端**）  
+4. 登出后原 token 失效  
+5. 用户 A 的账户对用户 B 不可见、不可写  
+6. `GET /chat` 不可用  
+7. 无 token / 伪造 token WS 握手 401  
 
-确认以上后即可按本计划编码；**旧 user-center 计划文件保留作废声明，不再实施。**
+---
+
+## 10. 待办已关闭的确认项
+
+- [x] `user` 表结构与密码类型（`int`）  
+- [x] 存量账本：清空测试数据  
+- [x] 不多端同时在线  
+- [x] 不暴露 SSE，仅 WS  
+
+可按本计划直接编码。
