@@ -4,13 +4,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.jdbc.SQL;
 
-import java.util.Date;
-
 @Slf4j
 public class FlowSelectProvider {
 
-    public String getFlowByMain(@Param("handle") int handle, int order
-            , @Param("date") String date) {
+    public String getFlowByMain(@Param("handle") int handle, @Param("order") int order,
+                                @Param("date") String date, @Param("userId") int userId) {
         String sqlStr = new SQL() {
             {
                 SELECT("flow.id,flow.f_date,flow.money,flow.collect,flow.exempt,flow.note,a.handle,a.h_name,ac.a_name,acc.a_name t_a_name,t.t_name,t2.t_name p_t_name");
@@ -20,7 +18,7 @@ public class FlowSelectProvider {
                 LEFT_OUTER_JOIN("type t2 on t.parent = t2.id");
                 LEFT_OUTER_JOIN("account ac on flow.account_id = ac.id");
                 LEFT_OUTER_JOIN("account acc on flow.account_to_id = acc.id");
-
+                WHERE("flow.user_id = #{userId}");
                 if (handle >= 3) {
                     WHERE("a.handle < #{handle}", "flow.f_date like #{date}");
                 } else {
@@ -31,38 +29,18 @@ public class FlowSelectProvider {
                 } else {
                     ORDER_BY("flow.money+0 desc ");
                 }
-
             }
         }.toString();
-        log.info("method: getFlowByMain\n"+sqlStr);
+        log.info("method: getFlowByMain\n" + sqlStr);
         return sqlStr;
     }
 
-    public String getFlowByAccount(@Param("handle") int handle, @Param("accid") int accId
-            , @Param("date") String date) {
-        String sqlStr = new SQL() {
-            {
-                SELECT("flow.id,flow.f_date,flow.money,flow.collect,flow.exempt,flow.note,a.handle,a.h_name,ac.a_name,ac.id,acc.a_name t_a_name,t.t_name,t2.t_name p_t_name");
-                FROM("flow");
-                LEFT_OUTER_JOIN("action a on flow.action_id = a.id");
-                LEFT_OUTER_JOIN("type t on flow.type_id = t.id");
-                LEFT_OUTER_JOIN("type t2 on t.parent = t2.id");
-                LEFT_OUTER_JOIN("account ac on flow.account_id = ac.id");
-                LEFT_OUTER_JOIN("account acc on flow.account_to_id = acc.id");
-
-                if (handle >= 3) {
-                    WHERE("a.handle < #{handle}", "flow.f_date like #{date}","flow.account_id=#{accid}");
-                } else {
-                    WHERE("a.handle = #{handle}", "flow.f_date  like #{date}","flow.account_id=#{accid}");
-                }
-                ORDER_BY("flow.f_date desc ");
-            }
-        }.toString();
-        log.info( "method:  getFlowByAccount\n"+sqlStr);
-        return sqlStr;
-    }
-
-    public String getFlowByScreen(int handle, int account, String startDate, String endDate, boolean isSingleMonth, boolean isCollect, String note) {
+    public String getFlowByScreen(@Param("handle") int handle, @Param("account") int account,
+                                  @Param("startDate") String startDate, @Param("endDate") String endDate,
+                                  @Param("isSingleMonth") boolean isSingleMonth,
+                                  @Param("isCollect") boolean isCollect,
+                                  @Param("note") String note,
+                                  @Param("userId") int userId) {
         StringBuilder sql = new StringBuilder("SELECT " +
                 "flow.id, flow.f_date AS flowDate, flow.money, flow.collect, flow.exempt, flow.note," +
                 "a.handle, a.h_name AS handleName, a.id AS actionId," +
@@ -74,22 +52,21 @@ public class FlowSelectProvider {
         sql.append("LEFT OUTER JOIN type t2 ON t.parent = t2.id\n");
         sql.append("LEFT OUTER JOIN account ac ON flow.account_id = ac.id\n");
         sql.append("LEFT OUTER JOIN account acc ON flow.account_to_id = acc.id\n");
-        sql.append("WHERE a.handle ").append(handle == 3 ? "<" : "=").append(handle).append("\n");
+        sql.append("WHERE flow.user_id = #{userId}\n");
+        sql.append("AND a.handle ").append(handle == 3 ? "<" : "=").append("#{handle}").append("\n");
 
         if (account > 0) {
-            sql.append("AND (flow.account_id = ").append(account).append(" OR flow.account_to_id = ").append(account).append(")\n");
+            sql.append("AND (flow.account_id = #{account} OR flow.account_to_id = #{account})\n");
         }
 
         if (isSingleMonth) {
-            String likeDate = startDate.substring(0, 7);
-            sql.append("AND flow.f_date LIKE '").append(likeDate).append("%'\n");
+            sql.append("AND flow.f_date LIKE CONCAT(LEFT(#{startDate}, 7), '%')\n");
         } else {
-            if (!"null".equals(startDate) && !"".equals(startDate)) {
-                sql.append("AND flow.f_date >= '").append(startDate).append("'\n");
+            if (startDate != null && !"null".equals(startDate) && !startDate.isEmpty()) {
+                sql.append("AND flow.f_date >= #{startDate}\n");
             }
-
-            if (!"null".equals(endDate) && !"".equals(endDate)) {
-                sql.append("AND flow.f_date <= '").append(endDate).append("'\n");
+            if (endDate != null && !"null".equals(endDate) && !endDate.isEmpty()) {
+                sql.append("AND flow.f_date <= #{endDate}\n");
             }
         }
 
@@ -97,12 +74,8 @@ public class FlowSelectProvider {
             sql.append("AND flow.collect = 1\n");
         }
 
-        if (note != null) {
-            // Trim the note and check if it's not empty
-            String trimmedNote = note.trim();
-            if (!trimmedNote.isEmpty()) {
-                sql.append("AND flow.note LIKE '%").append(trimmedNote).append("%'\n");
-            }
+        if (note != null && !note.trim().isEmpty()) {
+            sql.append("AND flow.note LIKE CONCAT('%', #{note}, '%')\n");
         }
 
         sql.append("ORDER BY flow.f_date DESC");
@@ -110,17 +83,17 @@ public class FlowSelectProvider {
         return sql.toString();
     }
 
-
-    public String getYearlySummary(@Param("year")int year) {
-        String sql =  new SQL() {{
+    public String getYearlySummary(@Param("year") int year, @Param("userId") int userId) {
+        String sql = new SQL() {{
             SELECT("SUM(CASE WHEN a.handle = 0 THEN f.money ELSE 0 END) AS totalEarns",
                     "SUM(CASE WHEN a.handle = 1 THEN f.money ELSE 0 END) AS totalCosts",
                     "SUM(CASE WHEN a.handle = 0 THEN f.money ELSE 0 END) - SUM(CASE WHEN a.handle = 1 THEN f.money ELSE 0 END) AS totalBalance");
             FROM("flow f");
             JOIN("action a ON f.action_id = a.id");
             WHERE("YEAR(f.f_date) = #{year}");
+            WHERE("f.user_id = #{userId}");
         }}.toString();
-        log.info("method: getYearlySummary\n"+sql);
+        log.info("method: getYearlySummary\n" + sql);
         return sql;
     }
 }

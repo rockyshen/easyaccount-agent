@@ -3,6 +3,9 @@ package com.rockyshen.easyaccountagent.controller;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rockyshen.easyaccountagent.auth.AuthContext;
+import com.rockyshen.easyaccountagent.auth.AuthenticatedUser;
+import com.rockyshen.easyaccountagent.auth.WebSocketAuthHandshakeInterceptor;
 import com.rockyshen.easyaccountagent.model.ws.ChatClientMsg;
 import com.rockyshen.easyaccountagent.model.ws.ChatServerMsg;
 import lombok.extern.slf4j.Slf4j;
@@ -14,8 +17,6 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -35,24 +36,41 @@ public class WebSocketHandler extends TextWebSocketHandler {
     });
 
     public WebSocketHandler(ObjectMapper objectMapper,
-                                        @Qualifier("easyAccountAgent") ReactAgent easyAccountAgent) {
+                            @Qualifier("easyAccountAgent") ReactAgent easyAccountAgent) {
         this.objectMapper = objectMapper;
         this.easyAccountAgent = easyAccountAgent;
     }
 
     private static class WSSession {
         WebSocketSession conn;
-        String userId;
+        int userId;
+        String userName;
+        String threadId;
         volatile boolean busy;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        AuthenticatedUser user = (AuthenticatedUser) session.getAttributes()
+                .get(WebSocketAuthHandshakeInterceptor.ATTR_USER);
+        if (user == null) {
+            try {
+                session.close(CloseStatus.NOT_ACCEPTABLE.withReason("unauthorized"));
+            } catch (Exception ignored) {
+                // ignore
+            }
+            return;
+        }
         WSSession ws = new WSSession();
         ws.conn = session;
-        ws.userId = resolveUserId(session.getUri() != null ? session.getUri().getQuery() : null);
+        ws.userId = user.getId();
+        ws.userName = user.getName();
+        ws.threadId = "u-" + user.getId();
         sessions.put(session.getId(), ws);
-        send(session, ChatServerMsg.builder().type("connected").content("记账助手已连接").build());
+        send(session, ChatServerMsg.builder()
+                .type("connected")
+                .content("记账助手已连接，用户=" + user.getName())
+                .build());
     }
 
     @Override
@@ -89,8 +107,9 @@ public class WebSocketHandler extends TextWebSocketHandler {
 
     private void handleChat(WSSession ws, String content) {
         ws.busy = true;
+        AuthContext.setUserId(ws.userId);
         try {
-            RunnableConfig config = RunnableConfig.builder().threadId(ws.userId).build();
+            RunnableConfig config = RunnableConfig.builder().threadId(ws.threadId).build();
             StringBuilder full = new StringBuilder();
             easyAccountAgent.streamMessages(content, config)
                     .filter(AssistantMessage.class::isInstance)
@@ -107,6 +126,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
             send(ws.conn, ChatServerMsg.builder().type("error")
                     .message(e.getMessage() != null ? e.getMessage() : "处理失败").build());
         } finally {
+            AuthContext.clear();
             ws.busy = false;
         }
     }
@@ -122,17 +142,5 @@ public class WebSocketHandler extends TextWebSocketHandler {
         } catch (Exception e) {
             log.warn("[EasyAccounts WS] 发送失败: {}", e.getMessage());
         }
-    }
-
-    private static String resolveUserId(String query) {
-        if (query == null || query.isBlank()) {
-            return "easyaccount-guest";
-        }
-        for (String part : query.split("&")) {
-            if (part.startsWith("userId=")) {
-                return URLDecoder.decode(part.substring(7), StandardCharsets.UTF_8);
-            }
-        }
-        return "easyaccount-guest";
     }
 }

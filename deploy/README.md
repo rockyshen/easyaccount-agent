@@ -1,9 +1,13 @@
 # easyaccount-agent
 
-| 环境 | API / WebSocket |
-|------|-----------------|
-| Pi 本机 | http://127.0.0.1:8088 · ws://127.0.0.1:8088/ws?userId=xxx |
-| 公网 | http://118.25.46.207:6088 · ws://118.25.46.207:6088/ws?userId=xxx |
+| 环境 | 地址 |
+|------|------|
+| Pi 本机 | http://127.0.0.1:8088 · ws://127.0.0.1:8088/ws?token=xxx |
+| 公网 | http://118.25.46.207:6088 · ws://118.25.46.207:6088/ws?token=xxx |
+
+先 `POST /api/auth/login` 获取 token；同一用户再次登录会使旧 token 失效（单端）。
+
+部署前在库执行 `scripts/alter_auth_and_user_isolation.sql`（会清空测试 account/flow）。
 
 ## Pi 部署
 
