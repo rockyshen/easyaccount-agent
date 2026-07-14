@@ -5,7 +5,8 @@ package com.rockyshen.easyaccountagent.auth;
  * <p>
  * WS worker 上的 {@link ThreadLocal} 在 Agent 工具线程上不可见
  * （ReactAgent 常通过 AsyncToolCallbackAdapter 在其它线程执行工具），
- * 因此工具回调须通过 {@link AuthPropagatingToolCallback} 从 RunnableConfig 注入。
+ * 因此工具回调须通过 {@link AuthPropagatingToolCallback}（且为 StateAware）
+ * 从 RunnableConfig / threadId（{@code u-{userId}}）注入。
  */
 public final class AuthContext {
 
