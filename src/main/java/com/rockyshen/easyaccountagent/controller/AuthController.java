@@ -25,6 +25,20 @@ public class AuthController {
 
     private final AuthService authService;
 
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody LoginRequestDto body,
+                                      @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String ua) {
+        if (body == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "请求体不能为空"));
+        }
+        try {
+            AuthService.LoginResult result = authService.register(body.getName(), body.getPassword(), ua);
+            return ResponseEntity.ok(loginResponse(result));
+        } catch (AuthException e) {
+            return ResponseEntity.status(e.getStatus()).body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequestDto body,
                                    @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String ua) {
@@ -35,14 +49,7 @@ public class AuthController {
         }
         try {
             AuthService.LoginResult result = authService.login(body.getName(), body.getPassword(), ua);
-            Map<String, Object> user = new LinkedHashMap<>();
-            user.put("id", result.user().getId());
-            user.put("name", result.user().getName());
-            Map<String, Object> resp = new LinkedHashMap<>();
-            resp.put("token", result.token());
-            resp.put("expiresAt", result.expiresAt().toInstant().atZone(ZoneId.systemDefault()).format(ISO));
-            resp.put("user", user);
-            return ResponseEntity.ok(resp);
+            return ResponseEntity.ok(loginResponse(result));
         } catch (AuthException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
         }
@@ -66,5 +73,16 @@ public class AuthController {
         body.put("id", user.get().getId());
         body.put("name", user.get().getName());
         return ResponseEntity.ok(body);
+    }
+
+    private static Map<String, Object> loginResponse(AuthService.LoginResult result) {
+        Map<String, Object> user = new LinkedHashMap<>();
+        user.put("id", result.user().getId());
+        user.put("name", result.user().getName());
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("token", result.token());
+        resp.put("expiresAt", result.expiresAt().toInstant().atZone(ZoneId.systemDefault()).format(ISO));
+        resp.put("user", user);
+        return resp;
     }
 }
