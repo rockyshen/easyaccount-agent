@@ -1,10 +1,15 @@
 package com.rockyshen.easyaccountagent.auth;
 
 /**
- * 当前请求/WS 工作线程上的登录用户。
- * WS 异步 worker 必须在入口 set、finally clear。
+ * 当前登录用户上下文。
+ * <p>
+ * WS worker 上的 {@link ThreadLocal} 在 Agent 工具线程上不可见
+ * （ReactAgent 常通过 AsyncToolCallbackAdapter 在其它线程执行工具），
+ * 因此工具回调须通过 {@link AuthPropagatingToolCallback} 从 RunnableConfig 注入。
  */
 public final class AuthContext {
+
+    public static final String METADATA_USER_ID = "userId";
 
     private static final ThreadLocal<Integer> USER_ID = new ThreadLocal<>();
 
@@ -29,5 +34,19 @@ public final class AuthContext {
 
     public static void clear() {
         USER_ID.remove();
+    }
+
+    /**
+     * 从 Agent threadId（约定 {@code u-{userId}}）解析用户 id。
+     */
+    public static Integer parseUserIdFromThreadId(String threadId) {
+        if (threadId == null || !threadId.startsWith("u-") || threadId.length() <= 2) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(threadId.substring(2));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

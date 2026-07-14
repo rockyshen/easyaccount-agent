@@ -2,6 +2,7 @@ package com.rockyshen.easyaccountagent.agent;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver;
+import com.rockyshen.easyaccountagent.auth.AuthPropagatingToolCallback;
 import com.rockyshen.easyaccountagent.constant.EasyAccountsPrompt;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -21,7 +22,8 @@ public class EasyAccountsAgentConfig {
         return ReactAgent.builder()
                 .name("easyaccount_agent")
                 .model(chatModel)
-                .tools(easyAccountToolCallbacks.toArray(new ToolCallback[0]))
+                .tools(AuthPropagatingToolCallback.wrapAll(
+                        easyAccountToolCallbacks.toArray(new ToolCallback[0])))
                 .systemPrompt(EasyAccountsPrompt.TEXT)
                 .saver(new MemorySaver())
                 .build();

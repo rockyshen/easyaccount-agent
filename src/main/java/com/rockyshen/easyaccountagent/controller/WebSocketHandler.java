@@ -109,7 +109,10 @@ public class WebSocketHandler extends TextWebSocketHandler {
         ws.busy = true;
         AuthContext.setUserId(ws.userId);
         try {
-            RunnableConfig config = RunnableConfig.builder().threadId(ws.threadId).build();
+            RunnableConfig config = RunnableConfig.builder()
+                    .threadId(ws.threadId)
+                    .addMetadata(AuthContext.METADATA_USER_ID, ws.userId)
+                    .build();
             StringBuilder full = new StringBuilder();
             easyAccountAgent.streamMessages(content, config)
                     .filter(AssistantMessage.class::isInstance)
