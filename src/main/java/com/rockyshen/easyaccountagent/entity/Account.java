@@ -7,6 +7,7 @@ import java.util.Date;
 @Data
 public class Account {
     private int id;
+    private Integer userId;
     private String money;
     private String exemptMoney;
     private String aName;

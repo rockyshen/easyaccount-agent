@@ -9,29 +9,55 @@ DB_PORT=3307
 DB_USER=<user>
 DB_PASSWORD=<password>
 SERVER_PORT=8088
+EASYACCOUNT_AUTH_ENABLED=true
+EASYACCOUNT_AUTH_TOKEN_TTL_DAYS=30
+EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS=7
 ```
 
 Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `deploy/.env.docker.pi.example`。
+
+## 部署前 DDL
+
+依次或按需执行：
+
+1. `scripts/alter_account_type.sql`（信用卡 `account_type`，若未执行过）
+2. `scripts/alter_auth_and_user_isolation.sql`（`auth_token`、清空测试账本、`user_id`）
 
 ## API
 
 | 接口 | 说明 |
 |------|------|
 | `GET /health` | 健康检查 |
-| `GET /chat?msg=` | 流式对话（SSE） |
-| `WS /ws?userId=` | WebSocket 流式对话 |
+| `POST /api/auth/login` | 登录，body: `{ "name", "password" }`（password 为 int） |
+| `POST /api/auth/logout` | 登出，Header: `Authorization: Bearer {token}` |
+| `GET /api/auth/me` | 校验免登录态 |
+| `WS /ws?token=` | WebSocket 流式对话（需有效 token） |
 
-## 示例
+`GET /chat` SSE **已下线**。
+
+## 登录与免登录
+
+1. 首次：`POST /api/auth/login` → 客户端持久化 `token`
+2. 之后：启动时 `GET /api/auth/me`；有效则直接 `WS /ws?token=...`
+3. **单端登录**：同一用户再次登录会踢掉旧 token
+4. 被踢/过期 → 401，需重新登录
 
 ```bash
-curl "http://localhost:8088/chat?msg=帮我查一下账户列表"
+# 登录
+curl -s -X POST http://localhost:8088/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"rocky","password":123456}'
+
+# 免登录检查
+curl -s http://localhost:8088/api/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
 ## 架构
 
-ReactAgent → Tools → LedgerFacade → FlowService 等 → MyBatis → MySQL (`yd_jz`)
+ReactAgent → Tools → LedgerFacade → *Service → MyBatis → MySQL (`yd_jz`)
 
-流水写入必须走 `FlowService`，保证账户余额一致。
+- 流水写入必须走 `FlowService`
+- `account` / `flow` 按 `user_id` 隔离；`action` / `type` 全局共享
 
 ## 账户类型
 
@@ -39,15 +65,3 @@ ReactAgent → Tools → LedgerFacade → FlowService 等 → MyBatis → MySQL 
 |--------------|------|-------|--------------|
 | 0 | 普通/储蓄 | 余额 | 豁免资产 |
 | 1 | 信用卡 | 可用额度 | 信用额度 |
-
-信用卡净资产贡献 = 可用额度 − 信用额度 = −已用额度。
-
-部署前执行：`scripts/alter_account_type.sql`
-
-### 工具补充
-
-| 工具 | 说明 |
-|------|------|
-| `createAccount` | `accountType=0/1`；信用卡时 `initialMoney` 为信用额度 |
-| `addExpense` | 信用卡刷卡：扣减可用额度 |
-| `repayCreditCard` | 从普通账户还款到信用卡，恢复可用额度 |

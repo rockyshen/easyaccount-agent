@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class Flow {
     private int id;
+    private Integer userId;
     private String fDate;
     private String money;
     private int typeId;

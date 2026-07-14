@@ -1,5 +1,6 @@
 package com.rockyshen.easyaccountagent.service;
 
+import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.dao.AccountDao;
 import com.rockyshen.easyaccountagent.dao.FlowDao;
 import com.rockyshen.easyaccountagent.dto.HomeDto;
@@ -32,13 +33,13 @@ public class HomeService {
     }
 
     private void setAccountsBean(HomeDto homeDto) {
+        int userId = AuthContext.requireUserId();
         BigDecimal totalAsset = BigDecimal.ZERO;
         BigDecimal exemptAsset = BigDecimal.ZERO;
-        List<Account> accounts = accountDao.findByDisableFalse();
+        List<Account> accounts = accountDao.findByDisableFalse(userId);
         for (Account account : accounts) {
             BigDecimal money = new BigDecimal(nullToZero(account.getMoney()));
             if (AccountService.isCreditAccount(account)) {
-                // 信用卡：可用额度不计入总资产；已用额度计入扣减，使净资产 -= 已用
                 BigDecimal limit = new BigDecimal(nullToZero(account.getExemptMoney()));
                 BigDecimal used = limit.subtract(money).max(BigDecimal.ZERO);
                 exemptAsset = exemptAsset.add(used);
@@ -91,15 +92,15 @@ public class HomeService {
     }
 
     private void setYearlySummary(HomeDto homeDto, int year) {
-        FlowYear flowYear = flowDao.getYearlySummary(year);
+        FlowYear flowYear = flowDao.getYearlySummary(year, AuthContext.requireUserId());
         if (flowYear == null) {
             homeDto.setYearOutCome("0.00");
             homeDto.setYearIncome("0.00");
             homeDto.setYearBalance("0.00");
             return;
         }
-        homeDto.setYearOutCome(new BigDecimal(flowYear.getTotalCosts()).setScale(2, RoundingMode.HALF_UP).toString());
-        homeDto.setYearIncome(new BigDecimal(flowYear.getTotalEarns()).setScale(2, RoundingMode.HALF_UP).toString());
-        homeDto.setYearBalance(new BigDecimal(flowYear.getTotalBalance()).setScale(2, RoundingMode.HALF_UP).toString());
+        homeDto.setYearOutCome(new BigDecimal(nullToZero(flowYear.getTotalCosts())).setScale(2, RoundingMode.HALF_UP).toString());
+        homeDto.setYearIncome(new BigDecimal(nullToZero(flowYear.getTotalEarns())).setScale(2, RoundingMode.HALF_UP).toString());
+        homeDto.setYearBalance(new BigDecimal(nullToZero(flowYear.getTotalBalance())).setScale(2, RoundingMode.HALF_UP).toString());
     }
 }

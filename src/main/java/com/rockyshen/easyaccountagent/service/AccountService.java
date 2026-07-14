@@ -1,5 +1,6 @@
 package com.rockyshen.easyaccountagent.service;
 
+import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.constant.ContentValues;
 import com.rockyshen.easyaccountagent.dao.AccountDao;
 import com.rockyshen.easyaccountagent.dto.AccountResponseDto;
@@ -22,8 +23,9 @@ public class AccountService {
 
     @Transactional(readOnly = true)
     public List<AccountResponseDto> getAllAccount() {
+        int userId = AuthContext.requireUserId();
         List<AccountResponseDto> result = new ArrayList<>();
-        for (Account account : accountDao.findByDisableFalse()) {
+        for (Account account : accountDao.findByDisableFalse(userId)) {
             result.add(new AccountResponseDto().convertToDto(account));
         }
         return result;
@@ -31,16 +33,19 @@ public class AccountService {
 
     @Transactional(readOnly = true)
     public Account getOriginAccountById(int id) {
-        return accountDao.findById(id);
+        return accountDao.findById(id, AuthContext.requireUserId());
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void updateOriginAccount(Account account) {
+        if (account.getUserId() == null) {
+            account.setUserId(AuthContext.requireUserId());
+        }
         accountDao.save(account);
     }
 
     /**
-     * @param accountType 0=普通账户，1=信用卡
+     * @param accountType  0=普通账户，1=信用卡
      * @param initialMoney 普通账户为初始余额；信用卡为信用额度
      */
     @Transactional(rollbackFor = Exception.class)
@@ -53,6 +58,7 @@ public class AccountService {
         }
 
         Account account = new Account();
+        account.setUserId(AuthContext.requireUserId());
         account.setAName(name.trim());
         account.setCard(card == null ? "" : card.trim());
         account.setNote(note == null ? "" : note.trim());
@@ -65,7 +71,6 @@ public class AccountService {
             if (new BigDecimal(amount).compareTo(BigDecimal.ZERO) <= 0) {
                 throw new IllegalArgumentException("信用卡信用额度必须大于 0");
             }
-            // money=可用额度，exemptMoney=信用额度；新建时已用为 0
             account.setMoney(amount);
             account.setExemptMoney(amount);
         } else {
@@ -119,7 +124,6 @@ public class AccountService {
                 && account.getAccountType() == ContentValues.ACCOUNT_TYPE_CREDIT;
     }
 
-    /** 调整信用额度时保持已用额度不变：newAvailable = newLimit - owed */
     private static void adjustCreditLimit(Account account, String newLimitStr) {
         BigDecimal newLimit = new BigDecimal(newLimitStr);
         if (newLimit.compareTo(BigDecimal.ZERO) <= 0) {
@@ -139,9 +143,9 @@ public class AccountService {
     }
 
     private Account requireActiveAccount(int id) {
-        Account account = accountDao.findById(id);
+        Account account = accountDao.findById(id, AuthContext.requireUserId());
         if (account == null) {
-            throw new IllegalArgumentException("账户 id=" + id + " 不存在");
+            throw new IllegalArgumentException("账户 id=" + id + " 不存在或不属于当前用户");
         }
         if (Boolean.TRUE.equals(account.getDisable())) {
             throw new IllegalArgumentException("账户 id=" + id + " 已停用");

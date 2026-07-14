@@ -1,5 +1,6 @@
 package com.rockyshen.easyaccountagent.service;
 
+import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.dto.FlowListDto;
 import com.rockyshen.easyaccountagent.dto.FlowAddRequestDto;
 import com.rockyshen.easyaccountagent.dto.FlowSingleResponseDto;
@@ -43,17 +44,22 @@ public class FlowService {
 
     @Transactional(rollbackFor = Exception.class)
     public void doAddFlow(FlowAddRequestDto flowAddRequestDto) throws Exception {
+        int userId = AuthContext.requireUserId();
         Flow flow = setNewFlow(flowAddRequestDto);
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
         String createDate = sdf.format(new Date());
         flow.setFCreateDate(createDate);
         BeanUtils.copyProperties(flowAddRequestDto, flow);
+        flow.setUserId(userId);
         flowDao.addFlow(flow);
     }
 
     private Flow setNewFlow(FlowAddRequestDto flowAddRequestDto) throws Exception {
         Action action = actionService.getAction(flowAddRequestDto.getActionId());
         Account account = accountService.getOriginAccountById(flowAddRequestDto.getAccountId());
+        if (account == null) {
+            throw new Exception("账户不存在或不属于当前用户");
+        }
         Account toAccount = null;
         BigDecimal flowMoney = new BigDecimal(flowAddRequestDto.getMoney());
         BigDecimal accountMoney = new BigDecimal(nullToZero(account.getMoney()));
@@ -73,7 +79,7 @@ public class FlowService {
                 }
                 toAccount = accountService.getOriginAccountById(flowAddRequestDto.getAccountToId());
                 if (toAccount == null) {
-                    throw new Exception("目标账户不存在");
+                    throw new Exception("目标账户不存在或不属于当前用户");
                 }
                 toAccount = handleAccount(ContentValues.ACTION_ADD, flowAddRequestDto.getMoney(), toAccount, action.isExempt());
                 accountService.updateOriginAccount(toAccount);
@@ -85,19 +91,25 @@ public class FlowService {
         Flow flow = new Flow();
         boolean creditRelated = AccountService.isCreditAccount(account) || AccountService.isCreditAccount(toAccount);
         flow.setExempt(action.isExempt() || creditRelated);
+        flow.setUserId(AuthContext.requireUserId());
         BeanUtils.copyProperties(flowAddRequestDto, flow);
         return flow;
     }
 
     public void doCollectFlow(int id, int collect) {
-        flowDao.collectFlowById(id, collect);
+        flowDao.collectFlowById(id, AuthContext.requireUserId(), collect);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void doUpdateFlow(int id, FlowAddRequestDto flowAddRequestDto) throws Exception {
-        Flow lastFlow = flowDao.queryFlowById(id).get(0);
+        int userId = AuthContext.requireUserId();
+        List<Flow> found = flowDao.queryFlowById(id, userId);
+        if (found == null || found.isEmpty()) {
+            throw new Exception("流水不存在或不属于当前用户");
+        }
+        Flow lastFlow = found.get(0);
         Action lastAction = actionService.getAction(lastFlow.getActionId());
-        Account lastAccount = accountService.getOriginAccountById(lastFlow.getAccountId() );
+        Account lastAccount = accountService.getOriginAccountById(lastFlow.getAccountId());
         switch (lastAction.getHandle()) {
             case ContentValues.ACTION_ADD:
                 lastAccount = handleAccount(ContentValues.ACTION_SUB, lastFlow.getMoney(), lastAccount, lastAction.isExempt());
@@ -116,6 +128,7 @@ public class FlowService {
         Flow flow = setNewFlow(flowAddRequestDto);
         flow.setId(id);
         BeanUtils.copyProperties(flowAddRequestDto, flow);
+        flow.setUserId(userId);
         flowDao.updateFlow(flow);
     }
 
@@ -187,14 +200,14 @@ public class FlowService {
 
     @Transactional(rollbackFor = Exception.class)
     public FlowSingleResponseDto doQueryFlow(int id) {
-        List<Flow> flows = flowDao.queryFlowById(id);
+        List<Flow> flows = flowDao.queryFlowById(id, AuthContext.requireUserId());
         if (flows == null || flows.size() == 0) {
             return null;
         }
         FlowSingleResponseDto toClientBean = new FlowSingleResponseDto();
         Flow flow = flows.get(0);
         BeanUtils.copyProperties(flow, toClientBean);
-        Account account = accountService.getOriginAccountById(flow.getAccountId() );
+        Account account = accountService.getOriginAccountById(flow.getAccountId());
         Action action = actionService.getAction(flow.getActionId());
         Type type = typeService.queryTypeSingle(flow.getTypeId());
         TypeListResponseDto typeListResponseDto = new TypeListResponseDto();
@@ -215,9 +228,14 @@ public class FlowService {
 
     @Transactional(rollbackFor = Exception.class)
     public void doDeleteFlow(int id) throws Exception {
-        Flow flow = flowDao.queryFlowById(id).get(0);
+        int userId = AuthContext.requireUserId();
+        List<Flow> found = flowDao.queryFlowById(id, userId);
+        if (found == null || found.isEmpty()) {
+            throw new Exception("流水不存在或不属于当前用户");
+        }
+        Flow flow = found.get(0);
         Action lastAction = actionService.getAction(flow.getActionId());
-        Account lastAccount = accountService.getOriginAccountById(flow.getAccountId() );
+        Account lastAccount = accountService.getOriginAccountById(flow.getAccountId());
         switch (lastAction.getHandle()) {
             case ContentValues.ACTION_ADD:
                 lastAccount = handleAccount(ContentValues.ACTION_SUB, flow.getMoney(), lastAccount, lastAction.isExempt());
@@ -234,7 +252,7 @@ public class FlowService {
         }
 
         accountService.updateOriginAccount(lastAccount);
-        flowDao.deleteFlowById(id);
+        flowDao.deleteFlowById(id, userId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -243,8 +261,8 @@ public class FlowService {
         FlowListDto flowListDto = new FlowListDto();
         SimpleDateFormat sdf1 = new SimpleDateFormat("yyyyMMdd_HHmm");
         String time = sdf1.format(new Date());
-        log.info("time:  "+time+"   date: " + monthStr + "  handle: " + handle);
-        List<Map<String, Object>> maps = flowDao.getFlowByMain(handle, order, monthStr) ;
+        log.info("time:  " + time + "   date: " + monthStr + "  handle: " + handle);
+        List<Map<String, Object>> maps = flowDao.getFlowByMain(handle, order, monthStr, AuthContext.requireUserId());
         List<FlowListDto.FlowListSingleDto> flows = new ArrayList<>();
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         BigDecimal moneyIn = new BigDecimal("0");
