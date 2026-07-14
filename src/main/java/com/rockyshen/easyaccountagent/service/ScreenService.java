@@ -1,5 +1,6 @@
 package com.rockyshen.easyaccountagent.service;
 
+import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.dao.FlowDao;
 import com.rockyshen.easyaccountagent.dto.FlowListDto;
 import com.rockyshen.easyaccountagent.dto.ScreenFlowRequestDto;
@@ -30,7 +31,8 @@ public class ScreenService {
                 getBean.getEndDate().trim(),
                 getBean.isSingleMonth(),
                 getBean.isCollect(),
-                getBean.getNote());
+                getBean.getNote(),
+                AuthContext.requireUserId());
         FlowListDto baseBean = new FlowListDto();
         baseBean.setFlows(new ArrayList<>());
         BigDecimal moneyIn = BigDecimal.ZERO;

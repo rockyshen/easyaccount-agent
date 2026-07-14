@@ -19,3 +19,9 @@ spring:
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
+
+easyaccount:
+  auth:
+    enabled: ${EASYACCOUNT_AUTH_ENABLED:true}
+    token-ttl-days: ${EASYACCOUNT_AUTH_TOKEN_TTL_DAYS:30}
+    sliding-renew-days: ${EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS:7}

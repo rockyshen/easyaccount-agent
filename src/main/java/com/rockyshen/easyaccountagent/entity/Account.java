@@ -7,6 +7,7 @@ import java.util.Date;
 @Data
 public class Account {
     private int id;
+    private Integer userId;
     private String money;
     private String exemptMoney;
     private String aName;
@@ -14,4 +15,6 @@ public class Account {
     private Boolean disable;
     private Date createTime;
     private String note;
+    /** 0=普通账户，1=信用卡 */
+    private Integer accountType;
 }
