@@ -16,7 +16,7 @@ mvn spring-boot:run
 | 接口 | 说明 |
 |------|------|
 | `GET /health` | 健康检查 |
-| `POST /api/auth/login` | 本地 user 表登录 |
+| `POST /api/auth/login` | 本地 user 表登录（password 为字符串） |
 | `GET /api/auth/me` | 校验会话（免登录） |
 | `POST /api/auth/logout` | 登出 |
 | `WS /ws?token=` | WebSocket 对话（需 token） |

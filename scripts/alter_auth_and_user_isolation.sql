@@ -1,6 +1,10 @@
 -- 本地登录会话 + 多用户账本隔离
 -- 执行前请确认已备份；会清空测试用 account/flow 数据
 
+-- 密码改为字符串，支持英文大小写与符号（原 int 数据会转为对应数字字符串）
+ALTER TABLE `user`
+  MODIFY COLUMN password VARCHAR(128) NOT NULL COMMENT '登录密码（明文字符串；哈希升级另议）';
+
 CREATE TABLE IF NOT EXISTS auth_token (
   id            BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id       INT          NOT NULL,

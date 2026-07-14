@@ -28,7 +28,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | 接口 | 说明 |
 |------|------|
 | `GET /health` | 健康检查 |
-| `POST /api/auth/login` | 登录，body: `{ "name", "password" }`（password 为 int） |
+| `POST /api/auth/login` | 登录，body: `{ "name", "password" }`（password 为字符串，支持大小写与符号） |
 | `POST /api/auth/logout` | 登出，Header: `Authorization: Bearer {token}` |
 | `GET /api/auth/me` | 校验免登录态 |
 | `WS /ws?token=` | WebSocket 流式对话（需有效 token） |
@@ -46,7 +46,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 # 登录
 curl -s -X POST http://localhost:8088/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"name":"rocky","password":123456}'
+  -d '{"name":"rocky","password":"P@ssw0rd!"}'
 
 # 免登录检查
 curl -s http://localhost:8088/api/auth/me -H "Authorization: Bearer $TOKEN"

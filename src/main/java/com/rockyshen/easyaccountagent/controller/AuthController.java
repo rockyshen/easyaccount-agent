@@ -28,7 +28,8 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequestDto body,
                                    @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String ua) {
-        if (body == null || body.getName() == null || body.getPassword() == null) {
+        if (body == null || body.getName() == null || body.getPassword() == null
+                || body.getPassword().isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "用户名或密码错误"));
         }

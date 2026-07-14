@@ -31,8 +31,8 @@ public class AuthService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public LoginResult login(String name, int password, String userAgent) {
-        if (name == null || name.isBlank()) {
+    public LoginResult login(String name, String password, String userAgent) {
+        if (name == null || name.isBlank() || password == null || password.isEmpty()) {
             throw new AuthException(401, "用户名或密码错误");
         }
         User user = userDao.findByNameAndPassword(name.trim(), password);

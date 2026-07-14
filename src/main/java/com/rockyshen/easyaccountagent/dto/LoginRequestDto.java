@@ -2,7 +2,7 @@ package com.rockyshen.easyaccountagent.dto;
 
 public class LoginRequestDto {
     private String name;
-    private Integer password;
+    private String password;
 
     public String getName() {
         return name;
@@ -12,11 +12,11 @@ public class LoginRequestDto {
         this.name = name;
     }
 
-    public Integer getPassword() {
+    public String getPassword() {
         return password;
     }
 
-    public void setPassword(Integer password) {
+    public void setPassword(String password) {
         this.password = password;
     }
 }
