@@ -6,18 +6,14 @@ import com.rockyshen.easyaccountagent.dto.FlowSingleResponseDto;
 import com.rockyshen.easyaccountagent.dto.HomeDto;
 import com.rockyshen.easyaccountagent.dto.ScreenFlowRequestDto;
 import com.rockyshen.easyaccountagent.dto.TypeListResponseDto;
+import com.rockyshen.easyaccountagent.entity.Account;
 import com.rockyshen.easyaccountagent.entity.Action;
 import com.rockyshen.easyaccountagent.entity.Type;
-import com.rockyshen.easyaccountagent.service.AccountService;
-import com.rockyshen.easyaccountagent.service.ActionService;
-import com.rockyshen.easyaccountagent.service.FlowService;
-import com.rockyshen.easyaccountagent.service.HomeService;
-import com.rockyshen.easyaccountagent.service.ScreenService;
-import com.rockyshen.easyaccountagent.service.TypeService;
 import com.rockyshen.easyaccountagent.constant.ContentValues;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.StringJoiner;
 
@@ -38,14 +34,26 @@ public class LedgerFacade {
             return "暂无活跃账户。";
         }
         StringBuilder sb = new StringBuilder("账户列表：\n");
-        accounts.forEach(a -> sb.append(String.format("- id=%d, 名称=%s, 余额=%s, 豁免=%s%n",
-                a.getId(), a.getName(), a.getMoney(), a.getExemptMoney())));
+        accounts.forEach(a -> {
+            if (a.getAccountType() == ContentValues.ACCOUNT_TYPE_CREDIT) {
+                sb.append(String.format("- id=%d, 类型=信用卡, 名称=%s, 可用额度=%s, 信用额度=%s, 已用=%s%n",
+                        a.getId(), a.getName(), a.getMoney(), a.getExemptMoney(),
+                        a.getUsedMoney() == null ? "0.00" : a.getUsedMoney()));
+            } else {
+                sb.append(String.format("- id=%d, 类型=普通, 名称=%s, 余额=%s, 豁免=%s%n",
+                        a.getId(), a.getName(), a.getMoney(), a.getExemptMoney()));
+            }
+        });
         return sb.toString();
     }
 
-    public String createAccount(String name, String initialMoney, String card, String note) {
+    public String createAccount(String name, String initialMoney, String card, String note, int accountType) {
         try {
-            var account = accountService.createAccount(name, initialMoney, card, note);
+            var account = accountService.createAccount(name, initialMoney, card, note, accountType);
+            if (AccountService.isCreditAccount(account)) {
+                return String.format("信用卡账户创建成功：id=%d, 名称=%s, 信用额度=%s, 可用额度=%s, 已用=0.00",
+                        account.getId(), account.getAName(), account.getExemptMoney(), account.getMoney());
+            }
             return String.format("账户创建成功：id=%d, 名称=%s, 初始余额=%s",
                     account.getId(), account.getAName(), account.getMoney());
         } catch (Exception e) {
@@ -56,6 +64,14 @@ public class LedgerFacade {
     public String updateAccount(int accountId, String name, String card, String note, String exemptMoney) {
         try {
             var account = accountService.updateAccount(accountId, name, card, note, exemptMoney);
+            if (AccountService.isCreditAccount(account)) {
+                BigDecimal limit = new BigDecimal(account.getExemptMoney() == null ? "0" : account.getExemptMoney());
+                BigDecimal available = new BigDecimal(account.getMoney() == null ? "0" : account.getMoney());
+                String used = limit.subtract(available).max(BigDecimal.ZERO).toPlainString();
+                return String.format("信用卡已更新：id=%d, 名称=%s, 可用=%s, 额度=%s, 已用=%s, 卡号=%s",
+                        account.getId(), account.getAName(), account.getMoney(),
+                        account.getExemptMoney(), used, account.getCard());
+            }
             return String.format("账户已更新：id=%d, 名称=%s, 余额=%s, 豁免=%s, 卡号=%s, 备注=%s",
                     account.getId(), account.getAName(), account.getMoney(),
                     account.getExemptMoney(), account.getCard(),
@@ -71,6 +87,49 @@ public class LedgerFacade {
             return "账户 id=" + accountId + " 已停用（软删除）。";
         } catch (Exception e) {
             return "删除账户失败：" + e.getMessage();
+        }
+    }
+
+    /**
+     * 信用卡还款：从储蓄/普通账户转入信用卡，恢复可用额度。
+     */
+    public String repayCreditCard(String money, String date, int fromAccountId, int creditAccountId,
+                                  int typeId, String note) {
+        try {
+            Account from = accountService.getOriginAccountById(fromAccountId);
+            Account credit = accountService.getOriginAccountById(creditAccountId);
+            if (from == null) {
+                return "还款失败：付款账户不存在";
+            }
+            if (credit == null || !AccountService.isCreditAccount(credit)) {
+                return "还款失败：目标账户不是信用卡";
+            }
+            if (AccountService.isCreditAccount(from)) {
+                return "还款失败：付款账户不能是信用卡，请使用储蓄/普通账户还款";
+            }
+            int actionId = findActionIdByHandle(ContentValues.ACTION_INNER);
+            if (actionId < 0) {
+                return "还款失败：未找到转账类型 action";
+            }
+            FlowAddRequestDto dto = new FlowAddRequestDto();
+            dto.setMoney(money);
+            dto.setfDate(date);
+            dto.setAccountId(fromAccountId);
+            dto.setAccountToId(creditAccountId);
+            dto.setTypeId(typeId);
+            dto.setActionId(actionId);
+            dto.setNote(note == null ? "信用卡还款" : note);
+            dto.setCollect(false);
+            flowService.doAddFlow(dto);
+            Account updated = accountService.getOriginAccountById(creditAccountId);
+            BigDecimal limit = new BigDecimal(updated.getExemptMoney() == null ? "0" : updated.getExemptMoney());
+            BigDecimal available = new BigDecimal(updated.getMoney() == null ? "0" : updated.getMoney());
+            String used = limit.subtract(available).max(BigDecimal.ZERO).toPlainString();
+            return String.format("还款成功：从账户#%d 向信用卡#%d（%s）还款 %s 元。可用额度=%s，已用=%s，信用额度=%s",
+                    fromAccountId, creditAccountId, credit.getAName(), money,
+                    updated.getMoney(), used, updated.getExemptMoney());
+        } catch (Exception e) {
+            return "还款失败：" + e.getMessage();
         }
     }
 
@@ -173,7 +232,16 @@ public class LedgerFacade {
     public String addFlow(FlowAddRequestDto dto) {
         try {
             flowService.doAddFlow(dto);
-            return String.format("记账成功：%s %s元，日期=%s", resolveTypeName(dto.getTypeId()), dto.getMoney(), dto.getfDate());
+            Account account = accountService.getOriginAccountById(dto.getAccountId());
+            String typeName = resolveTypeName(dto.getTypeId());
+            if (AccountService.isCreditAccount(account)) {
+                BigDecimal limit = new BigDecimal(account.getExemptMoney() == null ? "0" : account.getExemptMoney());
+                BigDecimal available = new BigDecimal(account.getMoney() == null ? "0" : account.getMoney());
+                String used = limit.subtract(available).max(BigDecimal.ZERO).toPlainString();
+                return String.format("记账成功：%s %s元，日期=%s，信用卡可用额度=%s，已用=%s",
+                        typeName, dto.getMoney(), dto.getfDate(), account.getMoney(), used);
+            }
+            return String.format("记账成功：%s %s元，日期=%s", typeName, dto.getMoney(), dto.getfDate());
         } catch (Exception e) {
             return "记账失败：" + e.getMessage();
         }

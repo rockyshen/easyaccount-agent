@@ -13,7 +13,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback listAccountsTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("listAccounts", EasyAccountsToolFunctions.listAccounts(facade))
-                .description("获取所有活跃账户及余额")
+                .description("获取所有活跃账户；信用卡会显示可用额度、信用额度和已用额度")
                 .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
                 .build();
     }
@@ -69,7 +69,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback addExpenseTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("addExpense", EasyAccountsToolFunctions.addExpense(facade))
-                .description("记录一笔支出")
+                .description("记录一笔支出（储蓄账户扣余额；信用卡刷卡扣可用额度）")
                 .inputType(EasyAccountsToolFunctions.WriteFlowRequest.class)
                 .build();
     }
@@ -85,7 +85,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback transferMoneyTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("transferMoney", EasyAccountsToolFunctions.transferMoney(facade))
-                .description("内部转账")
+                .description("内部转账（含信用卡取现等）；信用卡还款请优先用 repayCreditCard")
                 .inputType(EasyAccountsToolFunctions.TransferRequest.class)
                 .build();
     }
@@ -117,7 +117,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback createAccountTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("createAccount", EasyAccountsToolFunctions.createAccount(facade))
-                .description("新增账户，可设置名称、初始余额、卡号和备注")
+                .description("新增账户：accountType=0 普通/储蓄（initialMoney=余额）；accountType=1 信用卡（initialMoney=信用额度）")
                 .inputType(EasyAccountsToolFunctions.CreateAccountRequest.class)
                 .build();
     }
@@ -125,7 +125,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback updateAccountTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("updateAccount", EasyAccountsToolFunctions.updateAccount(facade))
-                .description("修改账户信息（名称、卡号、备注、豁免金额），不直接修改余额")
+                .description("修改账户信息；信用卡的 exemptMoney 表示调整信用额度（保持已用不变），不直接改可用额度")
                 .inputType(EasyAccountsToolFunctions.UpdateAccountRequest.class)
                 .build();
     }
@@ -135,6 +135,14 @@ public class EasyAccountsToolConfig {
         return FunctionToolCallback.builder("deleteAccount", EasyAccountsToolFunctions.deleteAccount(facade))
                 .description("删除（停用）账户，操作前应先调用 listAccounts 确认账户 ID")
                 .inputType(EasyAccountsToolFunctions.AccountIdRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback repayCreditCardTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("repayCreditCard", EasyAccountsToolFunctions.repayCreditCard(facade))
+                .description("信用卡还款：从普通/储蓄账户转入信用卡，恢复可用额度")
+                .inputType(EasyAccountsToolFunctions.RepayCreditRequest.class)
                 .build();
     }
 }

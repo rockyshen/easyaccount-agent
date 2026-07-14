@@ -32,3 +32,22 @@ curl "http://localhost:8088/chat?msg=帮我查一下账户列表"
 ReactAgent → Tools → LedgerFacade → FlowService 等 → MyBatis → MySQL (`yd_jz`)
 
 流水写入必须走 `FlowService`，保证账户余额一致。
+
+## 账户类型
+
+| account_type | 含义 | money | exempt_money |
+|--------------|------|-------|--------------|
+| 0 | 普通/储蓄 | 余额 | 豁免资产 |
+| 1 | 信用卡 | 可用额度 | 信用额度 |
+
+信用卡净资产贡献 = 可用额度 − 信用额度 = −已用额度。
+
+部署前执行：`scripts/alter_account_type.sql`
+
+### 工具补充
+
+| 工具 | 说明 |
+|------|------|
+| `createAccount` | `accountType=0/1`；信用卡时 `initialMoney` 为信用额度 |
+| `addExpense` | 信用卡刷卡：扣减可用额度 |
+| `repayCreditCard` | 从普通账户还款到信用卡，恢复可用额度 |

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -52,25 +53,28 @@ public class FlowService {
 
     private Flow setNewFlow(FlowAddRequestDto flowAddRequestDto) throws Exception {
         Action action = actionService.getAction(flowAddRequestDto.getActionId());
-        Account account = accountService.getOriginAccountById(flowAddRequestDto.getAccountId() );
+        Account account = accountService.getOriginAccountById(flowAddRequestDto.getAccountId());
         Account toAccount = null;
         BigDecimal flowMoney = new BigDecimal(flowAddRequestDto.getMoney());
-        BigDecimal accountMoney = new BigDecimal(account.getMoney());
+        BigDecimal accountMoney = new BigDecimal(nullToZero(account.getMoney()));
         switch (action.getHandle()) {
             case ContentValues.ACTION_ADD:
                 account = handleAccount(ContentValues.ACTION_ADD, flowAddRequestDto.getMoney(), account, action.isExempt());
                 break;
             case ContentValues.ACTION_SUB:
                 if (accountMoney.compareTo(flowMoney) < 0) {
-                    throw new Exception("减少金额不允许大于账户金额");
+                    throw new Exception(insufficientBalanceMessage(account));
                 }
                 account = handleAccount(ContentValues.ACTION_SUB, flowAddRequestDto.getMoney(), account, action.isExempt());
                 break;
             case ContentValues.ACTION_INNER:
                 if (accountMoney.compareTo(flowMoney) < 0) {
-                    throw new Exception("减少金额不允许大于账户金额");
+                    throw new Exception(insufficientBalanceMessage(account));
                 }
                 toAccount = accountService.getOriginAccountById(flowAddRequestDto.getAccountToId());
+                if (toAccount == null) {
+                    throw new Exception("目标账户不存在");
+                }
                 toAccount = handleAccount(ContentValues.ACTION_ADD, flowAddRequestDto.getMoney(), toAccount, action.isExempt());
                 accountService.updateOriginAccount(toAccount);
                 account = handleAccount(ContentValues.ACTION_SUB, flowAddRequestDto.getMoney(), account, action.isExempt());
@@ -79,7 +83,8 @@ public class FlowService {
         accountService.updateOriginAccount(account);
 
         Flow flow = new Flow();
-        flow.setExempt(action.isExempt());
+        boolean creditRelated = AccountService.isCreditAccount(account) || AccountService.isCreditAccount(toAccount);
+        flow.setExempt(action.isExempt() || creditRelated);
         BeanUtils.copyProperties(flowAddRequestDto, flow);
         return flow;
     }
@@ -114,28 +119,70 @@ public class FlowService {
         flowDao.updateFlow(flow);
     }
 
-    private Account handleAccount(int handle, String money, Account account, boolean isExempt) {
+    /**
+     * 信用卡：money=可用额度，exemptMoney=信用额度（记账时不改额度）。
+     * 普通账户：仍按 action.exempt 同步豁免金额（兼容旧逻辑）。
+     */
+    private Account handleAccount(int handle, String money, Account account, boolean actionExempt) throws Exception {
+        if (AccountService.isCreditAccount(account)) {
+            return handleCreditAccount(handle, money, account);
+        }
         BigDecimal flowMoney = new BigDecimal(money);
-        BigDecimal accountMoney = new BigDecimal(account.getMoney());
-        BigDecimal accountExemptMoney = isExempt ? new BigDecimal(account.getExemptMoney()) : null;
+        BigDecimal accountMoney = new BigDecimal(nullToZero(account.getMoney()));
+        BigDecimal accountExemptMoney = actionExempt ? new BigDecimal(nullToZero(account.getExemptMoney())) : null;
         switch (handle) {
             case ContentValues.ACTION_ADD:
                 accountMoney = accountMoney.add(flowMoney);
-                if (isExempt) {
+                if (actionExempt) {
                     accountExemptMoney = accountExemptMoney.add(flowMoney);
-                    account.setExemptMoney(accountExemptMoney.toString());
+                    account.setExemptMoney(accountExemptMoney.toPlainString());
                 }
                 break;
             case ContentValues.ACTION_SUB:
                 accountMoney = accountMoney.subtract(flowMoney);
-                if (isExempt) {
+                if (actionExempt) {
                     accountExemptMoney = accountExemptMoney.subtract(flowMoney);
-                    account.setExemptMoney(accountExemptMoney.toString());
+                    account.setExemptMoney(accountExemptMoney.toPlainString());
                 }
                 break;
         }
-        account.setMoney(accountMoney.toString());
+        account.setMoney(accountMoney.toPlainString());
         return account;
+    }
+
+    private Account handleCreditAccount(int handle, String money, Account account) throws Exception {
+        BigDecimal flowMoney = new BigDecimal(money);
+        BigDecimal available = new BigDecimal(nullToZero(account.getMoney()));
+        BigDecimal limit = new BigDecimal(nullToZero(account.getExemptMoney()));
+        switch (handle) {
+            case ContentValues.ACTION_ADD:
+                // 还款/贷方增加：提升可用额度，不超过信用额度
+                available = available.add(flowMoney);
+                if (available.compareTo(limit) > 0) {
+                    throw new Exception("还款金额超过已用额度，可用额度不能大于信用额度 "
+                            + limit.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                }
+                break;
+            case ContentValues.ACTION_SUB:
+                // 刷卡支出/取现：扣减可用额度
+                if (available.compareTo(flowMoney) < 0) {
+                    throw new Exception("信用卡可用额度不足");
+                }
+                available = available.subtract(flowMoney);
+                break;
+            default:
+                break;
+        }
+        account.setMoney(available.setScale(2, RoundingMode.HALF_UP).toPlainString());
+        return account;
+    }
+
+    private static String insufficientBalanceMessage(Account account) {
+        return AccountService.isCreditAccount(account) ? "信用卡可用额度不足" : "减少金额不允许大于账户金额";
+    }
+
+    private static String nullToZero(String value) {
+        return value == null || value.isBlank() ? "0" : value;
     }
 
     @Transactional(rollbackFor = Exception.class)

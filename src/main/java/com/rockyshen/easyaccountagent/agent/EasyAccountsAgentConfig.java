@@ -44,12 +44,13 @@ public class EasyAccountsAgentConfig {
             @Qualifier("toggleFavoriteTool") ToolCallback toggleFavoriteTool,
             @Qualifier("createAccountTool") ToolCallback createAccountTool,
             @Qualifier("updateAccountTool") ToolCallback updateAccountTool,
-            @Qualifier("deleteAccountTool") ToolCallback deleteAccountTool) {
+            @Qualifier("deleteAccountTool") ToolCallback deleteAccountTool,
+            @Qualifier("repayCreditCardTool") ToolCallback repayCreditCardTool) {
         return List.of(
                 listAccountsTool, listActionsTool, listTypesByActionTool,
                 getMonthlyFlowsTool, searchFlowsTool, getFlowDetailTool, getDashboardTool,
                 addExpenseTool, addIncomeTool, transferMoneyTool,
                 updateFlowTool, deleteFlowTool, toggleFavoriteTool,
-                createAccountTool, updateAccountTool, deleteAccountTool);
+                createAccountTool, updateAccountTool, deleteAccountTool, repayCreditCardTool);
     }
 }

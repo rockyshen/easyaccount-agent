@@ -81,9 +81,10 @@ public final class EasyAccountsToolFunctions {
 
     public record CreateAccountRequest(
             @ToolParam(description = "账户名称") String name,
-            @ToolParam(description = "初始余额，默认0") String initialMoney,
+            @ToolParam(description = "普通账户=初始余额；信用卡=信用额度，必须大于0") String initialMoney,
             @ToolParam(description = "卡号，可选") String card,
-            @ToolParam(description = "备注，可选") String note) {
+            @ToolParam(description = "备注，可选") String note,
+            @ToolParam(description = "账户类型：0=普通/储蓄，1=信用卡") int accountType) {
     }
 
     public record UpdateAccountRequest(
@@ -91,10 +92,19 @@ public final class EasyAccountsToolFunctions {
             @ToolParam(description = "新名称，空字符串表示不修改") String name,
             @ToolParam(description = "新卡号，空字符串表示不修改") String card,
             @ToolParam(description = "新备注，空字符串表示不修改") String note,
-            @ToolParam(description = "新豁免金额，空字符串表示不修改") String exemptMoney) {
+            @ToolParam(description = "普通账户=豁免金额；信用卡=新信用额度（保持已用不变），空字符串表示不修改") String exemptMoney) {
     }
 
     public record AccountIdRequest(@ToolParam(description = "账户 ID") int accountId) {
+    }
+
+    public record RepayCreditRequest(
+            @ToolParam(description = "还款金额") String money,
+            @ToolParam(description = "日期 yyyy-MM-dd") String date,
+            @ToolParam(description = "付款账户 ID（普通/储蓄账户）") int fromAccountId,
+            @ToolParam(description = "信用卡账户 ID") int creditAccountId,
+            @ToolParam(description = "分类 typeId") int typeId,
+            @ToolParam(description = "备注") String note) {
     }
 
     public static Function<EmptyRequest, String> listAccounts(LedgerFacade facade) {
@@ -168,7 +178,7 @@ public final class EasyAccountsToolFunctions {
     }
 
     public static Function<CreateAccountRequest, String> createAccount(LedgerFacade facade) {
-        return req -> facade.createAccount(req.name(), req.initialMoney(), req.card(), req.note());
+        return req -> facade.createAccount(req.name(), req.initialMoney(), req.card(), req.note(), req.accountType());
     }
 
     public static Function<UpdateAccountRequest, String> updateAccount(LedgerFacade facade) {
@@ -177,6 +187,18 @@ public final class EasyAccountsToolFunctions {
 
     public static Function<AccountIdRequest, String> deleteAccount(LedgerFacade facade) {
         return req -> facade.deleteAccount(req.accountId());
+    }
+
+    public static Function<RepayCreditRequest, String> repayCreditCard(LedgerFacade facade) {
+        return req -> {
+            String fp = "repay:" + req.money() + ":" + req.date() + ":" + req.fromAccountId() + ":" + req.creditAccountId();
+            String dup = checkDuplicate(fp);
+            if (dup != null) {
+                return dup;
+            }
+            return facade.repayCreditCard(formatMoney(req.money()), resolveDate(req.date()),
+                    req.fromAccountId(), req.creditAccountId(), req.typeId(), truncateNote(req.note()));
+        };
     }
 
     private static String writeByHandle(LedgerFacade facade, WriteFlowRequest req, int handle, int accountToId) {
