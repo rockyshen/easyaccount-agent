@@ -28,6 +28,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | 接口 | 说明 |
 |------|------|
 | `GET /health` | 健康检查 |
+| `POST /api/auth/register` | 注册并自动登录；用户名已存在返回 409 |
 | `POST /api/auth/login` | 登录，body: `{ "name", "password" }`（password 为字符串，支持大小写与符号） |
 | `POST /api/auth/logout` | 登出，Header: `Authorization: Bearer {token}` |
 | `GET /api/auth/me` | 校验免登录态 |
@@ -35,14 +36,20 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 
 `GET /chat` SSE **已下线**。
 
-## 登录与免登录
+## 注册与登录
 
-1. 首次：`POST /api/auth/login` → 客户端持久化 `token`
-2. 之后：启动时 `GET /api/auth/me`；有效则直接 `WS /ws?token=...`
-3. **单端登录**：同一用户再次登录会踢掉旧 token
-4. 被踢/过期 → 401，需重新登录
+1. 无账号：`POST /api/auth/register` → 存 token → 连 WS
+2. 有账号：`POST /api/auth/login` → 存 token
+3. 之后启动：`GET /api/auth/me`；有效则直接连 WS
+4. **单端登录**：再次登录会踢掉旧 token
+5. 建议执行 `scripts/alter_user_name_unique.sql` 给 `user.name` 加唯一索引
 
 ```bash
+# 注册（成功即返回 token）
+curl -s -X POST http://localhost:8088/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"rocky","password":"P@ssw0rd!"}'
+
 # 登录
 curl -s -X POST http://localhost:8088/api/auth/login \
   -H 'Content-Type: application/json' \

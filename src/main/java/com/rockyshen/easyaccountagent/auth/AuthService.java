@@ -30,6 +30,34 @@ public class AuthService {
     public record LoginResult(String token, Date expiresAt, AuthenticatedUser user) {
     }
 
+    /**
+     * 注册新用户并自动登录（返回与 login 相同结构的 token）。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public LoginResult register(String name, String password, String userAgent) {
+        if (name == null || name.isBlank()) {
+            throw new AuthException(400, "用户名不能为空");
+        }
+        String trimmed = name.trim();
+        if (trimmed.length() > 50) {
+            throw new AuthException(400, "用户名最多 50 个字符");
+        }
+        if (password == null || password.isEmpty()) {
+            throw new AuthException(400, "密码不能为空");
+        }
+        if (password.length() > 128) {
+            throw new AuthException(400, "密码最多 128 个字符");
+        }
+        if (userDao.findByName(trimmed) != null) {
+            throw new AuthException(409, "用户名已存在");
+        }
+        User user = new User();
+        user.setName(trimmed);
+        user.setPassword(password);
+        userDao.insert(user);
+        return login(trimmed, password, userAgent);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public LoginResult login(String name, String password, String userAgent) {
         if (name == null || name.isBlank() || password == null || password.isEmpty()) {
