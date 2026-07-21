@@ -9,6 +9,8 @@
 
 部署前在库执行 `scripts/alter_auth_and_user_isolation.sql`（会清空测试 account/flow）。
 
+对话记忆：启动后 `MysqlSaver` 会在 `yd_jz` 自动建表 `GRAPH_THREAD` / `GRAPH_CHECKPOINT`（`CREATE_IF_NOT_EXISTS`）。checkpoint 含完整 Agent 状态，随轮次增长，注意库容量；清理/备份参考 `scripts/graph_checkpoint_cleanup.sql`。若需手工建表，见 `scripts/graph_checkpoint_ddl.sql`。
+
 ## Pi 部署
 
 1. 克隆到 `/opt/easyaccount-agent`
