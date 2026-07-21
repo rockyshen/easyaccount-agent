@@ -23,6 +23,8 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 1. `scripts/alter_account_type.sql`（信用卡 `account_type`，若未执行过）
 2. `scripts/alter_auth_and_user_isolation.sql`（`auth_token`、清空测试账本、`user_id`）
 
+对话记忆表 `GRAPH_THREAD` / `GRAPH_CHECKPOINT` 由应用启动时 `MysqlSaver`（`CREATE_IF_NOT_EXISTS`）自动创建，一般无需手工 DDL。若运维希望与应用解耦，可参考 `scripts/graph_checkpoint_ddl.sql`。
+
 ## API
 
 | 接口 | 说明 |
@@ -65,6 +67,29 @@ ReactAgent → Tools → LedgerFacade → *Service → MyBatis → MySQL (`yd_jz
 
 - 流水写入必须走 `FlowService`
 - `account` / `flow` 按 `user_id` 隔离；`action` / `type` 全局共享
+
+## 对话记忆（跨重启）
+
+- Agent 使用 `MysqlSaver`，checkpoint 落在本库 `yd_jz`（`GRAPH_THREAD` / `GRAPH_CHECKPOINT`）
+- WebSocket 会话键：`threadId = u-{userId}`，**一用户一条持久会话链**；用户间互不串上下文
+- 服务重启 / Redeploy 后，同用户续聊仍可带上历史 Agent 状态
+- 本阶段不做多会话房间、前端可见历史列表（另开迭代）
+
+### 清空某用户记忆
+
+暂无产品 API，可按用户执行 SQL（`thread_name` 为 `u-{userId}`），示例见 `scripts/graph_checkpoint_cleanup.sql`：
+
+```sql
+-- 释放会话（推荐）
+UPDATE GRAPH_THREAD
+SET is_released = TRUE
+WHERE thread_name = 'u-1' AND is_released = FALSE;
+
+-- 或物理删除（CASCADE 删除对应 checkpoint）
+DELETE FROM GRAPH_THREAD WHERE thread_name = 'u-1';
+```
+
+长对话会增大 checkpoint 体积；定期 TTL 清理示例亦在上述脚本中。
 
 ## 账户类型
 

@@ -1,7 +1,8 @@
 package com.rockyshen.easyaccountagent.agent;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.CreateOption;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.rockyshen.easyaccountagent.auth.AuthPropagatingToolCallback;
 import com.rockyshen.easyaccountagent.constant.EasyAccountsPrompt;
 import org.springframework.ai.chat.model.ChatModel;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import javax.sql.DataSource;
 import java.util.List;
 
 @Configuration
@@ -18,14 +20,18 @@ public class EasyAccountsAgentConfig {
     @Bean
     ReactAgent easyAccountAgent(
             @Qualifier("qwenClientModel") ChatModel chatModel,
-            @Qualifier("easyAccountToolCallbacks") List<ToolCallback> easyAccountToolCallbacks) {
+            @Qualifier("easyAccountToolCallbacks") List<ToolCallback> easyAccountToolCallbacks,
+            DataSource dataSource) {
         return ReactAgent.builder()
                 .name("easyaccount_agent")
                 .model(chatModel)
                 .tools(AuthPropagatingToolCallback.wrapAll(
                         easyAccountToolCallbacks.toArray(new ToolCallback[0])))
                 .systemPrompt(EasyAccountsPrompt.TEXT)
-                .saver(new MemorySaver())
+                .saver(MysqlSaver.builder()
+                        .dataSource(dataSource)
+                        .createOption(CreateOption.CREATE_IF_NOT_EXISTS)
+                        .build())
                 .build();
     }
 
