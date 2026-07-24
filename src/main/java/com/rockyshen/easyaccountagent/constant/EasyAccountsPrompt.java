@@ -1,6 +1,15 @@
 package com.rockyshen.easyaccountagent.constant;
 
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
+import java.util.Locale;
+
 public final class EasyAccountsPrompt {
+
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     public static final String TEXT = """
             你是个人记账助手，帮助用户记录收支、查询账单、分析消费。
@@ -16,6 +25,8 @@ public final class EasyAccountsPrompt {
 
             规则：
             - 金额保留两位小数；日期格式 yyyy-MM-dd
+            - 「今天」「昨天」「本周」「本月」等相对日期，必须以系统提供的「当前日期」为准换算；禁止根据训练知识猜测年份
+            - 若历史对话中的日期与当前日期冲突，以当前日期为准
             - 优先使用子分类 typeId
             - 内部转账不计入收支分析
             - 禁止编造 ID，必须从工具返回结果中获取
@@ -25,6 +36,15 @@ public final class EasyAccountsPrompt {
 
             禁止：重复提交相同流水、绕过服务层直接操作数据
             """;
+
+    /** 供每次模型调用注入；时区与数据源一致（Asia/Shanghai）。 */
+    public static String currentDateContext() {
+        ZonedDateTime now = ZonedDateTime.now(APP_ZONE);
+        String weekday = now.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.CHINA);
+        return "当前日期：" + now.toLocalDate().format(DATE_FMT)
+                + "（" + weekday + "），时区 Asia/Shanghai。"
+                + "相对日期必须据此换算为 yyyy-MM-dd，不要猜测年份。";
+    }
 
     private EasyAccountsPrompt() {
     }

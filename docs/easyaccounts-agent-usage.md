@@ -73,6 +73,7 @@ ReactAgent → Tools → LedgerFacade → *Service → MyBatis → MySQL (`yd_jz
 - Agent 使用 `MysqlSaver`，checkpoint 落在本库 `yd_jz`（`GRAPH_THREAD` / `GRAPH_CHECKPOINT`）
 - WebSocket 会话键：`threadId = u-{userId}`，**一用户一条持久会话链**；用户间互不串上下文
 - 服务重启 / Redeploy 后，同用户续聊仍可带上历史 Agent 状态
+- 每次模型调用会注入服务器当前日期（`Asia/Shanghai`），避免「今天」被模型误判为训练截止年份
 - 本阶段不做多会话房间、前端可见历史列表（另开迭代）
 
 ### 清空某用户记忆
