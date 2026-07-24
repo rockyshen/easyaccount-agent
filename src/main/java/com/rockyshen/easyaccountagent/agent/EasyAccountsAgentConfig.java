@@ -28,6 +28,7 @@ public class EasyAccountsAgentConfig {
                 .tools(AuthPropagatingToolCallback.wrapAll(
                         easyAccountToolCallbacks.toArray(new ToolCallback[0])))
                 .systemPrompt(EasyAccountsPrompt.TEXT)
+                .interceptors(new CurrentDateModelInterceptor())
                 .saver(MysqlSaver.builder()
                         .dataSource(dataSource)
                         .createOption(CreateOption.CREATE_IF_NOT_EXISTS)
