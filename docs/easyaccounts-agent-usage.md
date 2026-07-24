@@ -34,8 +34,17 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `POST /api/auth/login` | 登录，body: `{ "name", "password" }`（password 为字符串，支持大小写与符号） |
 | `POST /api/auth/logout` | 登出，Header: `Authorization: Bearer {token}` |
 | `GET /api/auth/me` | 校验免登录态 |
+| `GET /api/accounts` | 账户列表（需 Bearer） |
+| `POST /api/accounts` | 创建账户，body: `{ name, initialMoney, card?, note?, accountType }` |
+| `PUT /api/accounts/{id}` | 更新账户，body: `{ name?, card?, note?, exemptMoney? }` |
+| `DELETE /api/accounts/{id}` | 软删除账户 |
+| `GET /api/actions` | 收支类型列表（全局只读） |
+| `GET /api/types?actionId=` | 某收支类型下的分类树（只读） |
+| `GET /api/dashboard` | 概览：总资产/净资产/年度汇总/账户占比 |
 | `WS /ws?token=` | WebSocket 流式对话（需有效 token） |
 
+业务 REST（accounts / actions / types / dashboard）均需 `Authorization: Bearer {token}`；失败多为 `{ "message": "..." }`。  
+分类目前**仅查询**，无增删改接口。  
 `GET /chat` SSE **已下线**。
 
 ## 注册与登录

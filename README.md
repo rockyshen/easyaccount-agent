@@ -19,6 +19,9 @@ mvn spring-boot:run
 | `POST /api/auth/login` | 本地 user 表登录（password 为字符串） |
 | `GET /api/auth/me` | 校验会话（免登录） |
 | `POST /api/auth/logout` | 登出 |
+| `GET/POST/PUT/DELETE /api/accounts` | 账户管理（需 Bearer） |
+| `GET /api/actions` · `GET /api/types?actionId=` | 分类只读（需 Bearer） |
+| `GET /api/dashboard` | 概览分析（需 Bearer） |
 | `WS /ws?token=` | WebSocket 对话（需 token） |
 
 详见证 `docs/easyaccounts-agent-usage.md`。
