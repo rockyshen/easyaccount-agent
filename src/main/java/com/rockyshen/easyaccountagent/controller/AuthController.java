@@ -4,6 +4,7 @@ import com.rockyshen.easyaccountagent.auth.AuthException;
 import com.rockyshen.easyaccountagent.auth.AuthService;
 import com.rockyshen.easyaccountagent.auth.AuthenticatedUser;
 import com.rockyshen.easyaccountagent.dto.LoginRequestDto;
+import com.rockyshen.easyaccountagent.metrics.AgentMetrics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -24,17 +25,21 @@ public class AuthController {
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     private final AuthService authService;
+    private final AgentMetrics agentMetrics;
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody LoginRequestDto body,
                                       @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String ua) {
         if (body == null) {
+            agentMetrics.authRegister(false);
             return ResponseEntity.badRequest().body(Map.of("message", "请求体不能为空"));
         }
         try {
             AuthService.LoginResult result = authService.register(body.getName(), body.getPassword(), ua);
+            agentMetrics.authRegister(true);
             return ResponseEntity.ok(loginResponse(result));
         } catch (AuthException e) {
+            agentMetrics.authRegister(false);
             return ResponseEntity.status(e.getStatus()).body(Map.of("message", e.getMessage()));
         }
     }
@@ -44,13 +49,16 @@ public class AuthController {
                                    @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String ua) {
         if (body == null || body.getName() == null || body.getPassword() == null
                 || body.getPassword().isEmpty()) {
+            agentMetrics.authLogin(false);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "用户名或密码错误"));
         }
         try {
             AuthService.LoginResult result = authService.login(body.getName(), body.getPassword(), ua);
+            agentMetrics.authLogin(true);
             return ResponseEntity.ok(loginResponse(result));
         } catch (AuthException e) {
+            agentMetrics.authLogin(false);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
         }
     }
@@ -59,6 +67,7 @@ public class AuthController {
     public ResponseEntity<?> logout(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
         String token = AuthService.extractBearerOrQueryToken(authorization, null);
         authService.logout(token);
+        agentMetrics.authLogout();
         return ResponseEntity.ok(Map.of("ok", true));
     }
 

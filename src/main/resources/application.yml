@@ -20,6 +20,35 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+# 文件日志见 logback-spring.xml；默认 /var/log/easyaccount-agent/easyaccount-agent.log
+# 本地开发可 export LOG_HOME=./logs
+logging:
+  level:
+    root: INFO
+    com.rockyshen.easyaccountagent: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        easyaccount.ws.chat: true
+        easyaccount.tool.calls: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
 easyaccount:
   auth:
     enabled: ${EASYACCOUNT_AUTH_ENABLED:true}
