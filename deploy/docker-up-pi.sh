@@ -18,7 +18,18 @@ mvn clean package -DskipTests
 echo "== 2. 校验 jar =="
 bash scripts/verify-jar.sh
 
-echo "== 3. Docker 构建并启动（业务 + Prometheus + Grafana） =="
+echo "== 3. 准备宿主机日志目录 =="
+HOST_LOG_DIR="${HOST_LOG_DIR:-/var/log/easyaccount-agent}"
+if [[ ! -d "${HOST_LOG_DIR}" ]]; then
+  if mkdir -p "${HOST_LOG_DIR}" 2>/dev/null; then
+    :
+  else
+    sudo mkdir -p "${HOST_LOG_DIR}"
+    sudo chmod 755 "${HOST_LOG_DIR}"
+  fi
+fi
+
+echo "== 4. Docker 构建并启动（业务 + Prometheus + Grafana） =="
 COMPOSE_FILES=(
   -f docker-compose.yml
   -f deploy/docker-compose.pi.yml
@@ -33,6 +44,9 @@ docker compose "${COMPOSE_FILES[@]}" "${ENV_FILE[@]}" ps
 echo "本机 API:  http://127.0.0.1:8088"
 echo "健康检查:  http://127.0.0.1:8088/health"
 echo "指标抓取:  http://127.0.0.1:8088/actuator/prometheus"
+echo "应用日志:  ${HOST_LOG_DIR}/easyaccount-agent.log"
+echo "GC 日志:   ${HOST_LOG_DIR}/gc.log"
+echo "堆转储:    ${HOST_LOG_DIR}/java_pid*.hprof"
 echo "Prometheus: http://127.0.0.1:9090"
 echo "Grafana:    http://127.0.0.1:3000  (默认 admin/admin，见 .env)"
 echo "WS: ws://127.0.0.1:8088/ws?token=xxx"

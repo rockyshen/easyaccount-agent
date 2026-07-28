@@ -20,6 +20,13 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+# 文件日志见 logback-spring.xml；默认 /var/log/easyaccount-agent/easyaccount-agent.log
+# 本地开发可 export LOG_HOME=./logs
+logging:
+  level:
+    root: INFO
+    com.rockyshen.easyaccountagent: INFO
+
 management:
   endpoints:
     web:

@@ -7,9 +7,12 @@
 ```bash
 export SPRING_AI_DASHSCOPE_API_KEY=sk-xxx
 export DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=root DB_PASSWORD=xxx
+export LOG_HOME=./logs   # 默认写 /var/log/easyaccount-agent/
 # 先执行 scripts/alter_auth_and_user_isolation.sql
 mvn spring-boot:run
 ```
+
+生产日志目录：`/var/log/easyaccount-agent/`（应用日志、GC、堆转储）。
 
 ## API
 

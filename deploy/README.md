@@ -43,6 +43,18 @@ Grafana 预置仪表盘：**EasyAccount Agent**（JVM、HTTP、WS 会话、对�
 
 **安全**：`9090` / `3000` / `/actuator/prometheus` 仅供树莓派本机或内网使用，不要通过 frp 映射到公网。
 
+### 日志目录
+
+统一落在 `/var/log/easyaccount-agent/`（容器内与宿主机 bind mount）：
+
+| 文件 | 说明 |
+|------|------|
+| `easyaccount-agent.log` | 应用日志（logback，按日+大小滚动） |
+| `gc.log` | JVM GC 日志（`-Xlog:gc*`，轮转 5×20MB） |
+| `java_pid*.hprof` | OOM 堆转储（`-XX:HeapDumpOnOutOfMemoryError`） |
+
+本地非 Docker 运行可设 `LOG_HOME=./logs`。
+
 ## Jenkins 自动部署
 
 仓库默认分支为 **master**（非 main）。GitHub `push` 到 `master` 后，Jenkins Job 触发：

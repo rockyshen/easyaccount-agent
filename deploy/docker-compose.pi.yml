@@ -12,5 +12,9 @@ services:
       - deploy/.env.docker.pi
     environment:
       JVM_MAX: 384m
+      APP_NAME: easyaccount-agent
+      LOG_HOME: /var/log/easyaccount-agent
+    volumes: !override
+      - ${HOST_LOG_DIR:-/var/log/easyaccount-agent}:/var/log/easyaccount-agent
     ports: !override
       - "8088:8088"
