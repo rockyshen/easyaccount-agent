@@ -55,15 +55,25 @@ ensure_host_log_dir() {
 
 ensure_host_log_dir "${HOST_LOG_DIR}"
 
-# 旧版 compose 相对路径错误时，Docker 会在仓库根把不存在的「文件」建成目录，导致再次挂载失败
-if [[ -e ./prometheus ]]; then
-  echo "清理仓库根误创建的 ./prometheus（正确路径为 deploy/prometheus）"
-  rm -rf ./prometheus
-fi
-if [[ -e ./grafana ]]; then
-  echo "清理仓库根误创建的 ./grafana（正确路径为 deploy/grafana）"
-  rm -rf ./grafana
-fi
+# 旧版 compose 相对路径错误时，Docker 会以 root 在仓库根把「文件」建成目录；Jenkins 无权限 rm
+remove_root_owned_path() {
+  local name="$1"
+  if [[ ! -e "./${name}" ]]; then
+    return 0
+  fi
+  echo "清理仓库根误创建的 ./${name}（正确路径为 deploy/${name}）"
+  if rm -rf "./${name}" 2>/dev/null; then
+    return 0
+  fi
+  docker run --rm \
+    -v "${PWD}:/work" \
+    -w /work \
+    docker.m.daocloud.io/library/busybox:1.36 \
+    rm -rf "/work/${name}"
+}
+
+remove_root_owned_path prometheus
+remove_root_owned_path grafana
 
 echo "== 4. Docker 构建并启动（业务 + Prometheus + Grafana） =="
 COMPOSE_FILES=(
