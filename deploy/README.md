@@ -55,6 +55,15 @@ Grafana 预置仪表盘：**EasyAccount Agent**（JVM、HTTP、WS 会话、对�
 
 本地非 Docker 运行可设 `LOG_HOME=./logs`。
 
+Jenkins 部署脚本会尝试创建该目录；**不要用交互式 sudo**。若首次部署失败，在 Pi 上手工执行一次：
+
+```bash
+sudo mkdir -p /var/log/easyaccount-agent
+sudo chmod 755 /var/log/easyaccount-agent
+```
+
+之后再跑 Jenkins 或 `bash deploy/docker-up-pi.sh`。
+
 ## Jenkins 自动部署
 
 仓库默认分支为 **master**（非 main）。GitHub `push` 到 `master` 后，Jenkins Job 触发：

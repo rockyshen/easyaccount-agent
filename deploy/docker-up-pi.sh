@@ -19,15 +19,41 @@ echo "== 2. 校验 jar =="
 bash scripts/verify-jar.sh
 
 echo "== 3. 准备宿主机日志目录 =="
-HOST_LOG_DIR="${HOST_LOG_DIR:-/var/log/easyaccount-agent}"
-if [[ ! -d "${HOST_LOG_DIR}" ]]; then
-  if mkdir -p "${HOST_LOG_DIR}" 2>/dev/null; then
-    :
-  else
-    sudo mkdir -p "${HOST_LOG_DIR}"
-    sudo chmod 755 "${HOST_LOG_DIR}"
-  fi
+# 优先读 .env 中的 HOST_LOG_DIR（勿依赖交互式 sudo，Jenkins 无 TTY）
+if [[ -z "${HOST_LOG_DIR:-}" ]] && [[ -f deploy/.env.docker.pi ]]; then
+  # shellcheck disable=SC1091
+  HOST_LOG_DIR="$(grep -E '^HOST_LOG_DIR=' deploy/.env.docker.pi | tail -1 | cut -d= -f2- || true)"
 fi
+HOST_LOG_DIR="${HOST_LOG_DIR:-/var/log/easyaccount-agent}"
+export HOST_LOG_DIR
+
+ensure_host_log_dir() {
+  local dir="$1"
+  if [[ -d "$dir" ]]; then
+    echo "日志目录已存在: $dir"
+    return 0
+  fi
+  if mkdir -p "$dir" 2>/dev/null; then
+    echo "已创建日志目录: $dir"
+    return 0
+  fi
+  # 无写权限时用 docker（通常 Jenkins 可免密 docker，不可免密 sudo）
+  local parent
+  parent="$(dirname "$dir")"
+  local base
+  base="$(basename "$dir")"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "无法创建 $dir：无写权限且无 docker" >&2
+    return 1
+  fi
+  echo "通过 docker 以 root 创建: $dir"
+  docker run --rm \
+    -v "${parent}:/host-parent" \
+    docker.m.daocloud.io/library/busybox:1.36 \
+    sh -c "mkdir -p \"/host-parent/${base}\" && chmod 755 \"/host-parent/${base}\""
+}
+
+ensure_host_log_dir "${HOST_LOG_DIR}"
 
 echo "== 4. Docker 构建并启动（业务 + Prometheus + Grafana） =="
 COMPOSE_FILES=(
