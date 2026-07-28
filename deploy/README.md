@@ -49,7 +49,7 @@ Grafana 预置仪表盘：**EasyAccount Agent**（JVM、HTTP、WS 会话、对�
 
 | 文件 | 说明 |
 |------|------|
-| `easyaccount-agent.log` | 应用日志（logback，按日+大小滚动） |
+| `easyaccount-agent.log` | 应用日志（logback，按日+大小滚动，保留 7 天） |
 | `gc.log` | JVM GC 日志（`-Xlog:gc*`，轮转 5×20MB） |
 | `java_pid*.hprof` | OOM 堆转储（`-XX:HeapDumpOnOutOfMemoryError`） |
 
