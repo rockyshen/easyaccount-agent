@@ -1,0 +1,47 @@
+# Prometheus + Grafana（与业务容器同 compose 网络）
+# 树莓派资源有限：短保留、低内存；仅本机/局域网访问，勿经 frp 暴露。
+
+services:
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-docker.m.daocloud.io/prom/prometheus:v2.54.1}
+    container_name: easyaccount-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-3d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-512MB}
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+    depends_on:
+      - easyaccount-agent
+    mem_limit: 256m
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-docker.m.daocloud.io/grafana/grafana:11.2.0}
+    container_name: easyaccount-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://127.0.0.1:3000}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    mem_limit: 256m
+
+volumes:
+  prometheus-data:
+  grafana-data:

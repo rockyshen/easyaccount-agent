@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.auth.AuthenticatedUser;
 import com.rockyshen.easyaccountagent.auth.WebSocketAuthHandshakeInterceptor;
+import com.rockyshen.easyaccountagent.metrics.AgentMetrics;
 import com.rockyshen.easyaccountagent.model.ws.ChatClientMsg;
 import com.rockyshen.easyaccountagent.model.ws.ChatServerMsg;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -28,6 +30,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
 
     private final ObjectMapper objectMapper;
     private final ReactAgent easyAccountAgent;
+    private final AgentMetrics agentMetrics;
     private final Map<String, WSSession> sessions = new ConcurrentHashMap<>();
     private final ExecutorService asyncExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "easyaccounts-ws-worker");
@@ -36,9 +39,11 @@ public class WebSocketHandler extends TextWebSocketHandler {
     });
 
     public WebSocketHandler(ObjectMapper objectMapper,
-                            @Qualifier("easyAccountAgent") ReactAgent easyAccountAgent) {
+                            @Qualifier("easyAccountAgent") ReactAgent easyAccountAgent,
+                            AgentMetrics agentMetrics) {
         this.objectMapper = objectMapper;
         this.easyAccountAgent = easyAccountAgent;
+        this.agentMetrics = agentMetrics;
     }
 
     private static class WSSession {
@@ -67,6 +72,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
         ws.userName = user.getName();
         ws.threadId = "u-" + user.getId();
         sessions.put(session.getId(), ws);
+        agentMetrics.wsConnected();
         send(session, ChatServerMsg.builder()
                 .type("connected")
                 .content("记账助手已连接，用户=" + user.getName())
@@ -75,7 +81,9 @@ public class WebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        sessions.remove(session.getId());
+        if (sessions.remove(session.getId()) != null) {
+            agentMetrics.wsDisconnected();
+        }
     }
 
     @Override
@@ -86,6 +94,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
         }
         try {
             ChatClientMsg clientMsg = objectMapper.readValue(message.getPayload(), ChatClientMsg.class);
+            agentMetrics.wsMessageReceived(clientMsg.getType());
             if (!"chat".equals(clientMsg.getType())) {
                 send(session, ChatServerMsg.builder().type("error").message("未知消息类型").build());
                 return;
@@ -95,12 +104,15 @@ public class WebSocketHandler extends TextWebSocketHandler {
                 return;
             }
             if (ws.busy) {
+                Timer.Sample busySample = agentMetrics.startChat();
+                agentMetrics.stopChat(busySample, "busy");
                 send(session, ChatServerMsg.builder().type("error").message("上一条消息仍在处理中").build());
                 return;
             }
             asyncExecutor.submit(() -> handleChat(ws, clientMsg.getContent().trim()));
         } catch (Exception e) {
             log.error("[EasyAccounts WS] 解析失败", e);
+            agentMetrics.wsMessageReceived("parse_error");
             send(session, ChatServerMsg.builder().type("error").message("消息格式错误").build());
         }
     }
@@ -108,6 +120,8 @@ public class WebSocketHandler extends TextWebSocketHandler {
     private void handleChat(WSSession ws, String content) {
         ws.busy = true;
         AuthContext.setUserId(ws.userId);
+        Timer.Sample sample = agentMetrics.startChat();
+        String outcome = "success";
         try {
             RunnableConfig config = RunnableConfig.builder()
                     .threadId(ws.threadId)
@@ -125,10 +139,12 @@ public class WebSocketHandler extends TextWebSocketHandler {
                     .blockLast();
             send(ws.conn, ChatServerMsg.builder().type("message_end").content(full.toString()).build());
         } catch (Exception e) {
+            outcome = "error";
             log.error("[EasyAccounts WS] 处理失败", e);
             send(ws.conn, ChatServerMsg.builder().type("error")
                     .message(e.getMessage() != null ? e.getMessage() : "处理失败").build());
         } finally {
+            agentMetrics.stopChat(sample, outcome);
             AuthContext.clear();
             ws.busy = false;
         }
