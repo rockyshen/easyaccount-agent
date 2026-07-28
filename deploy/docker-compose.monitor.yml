@@ -1,5 +1,8 @@
 # Prometheus + Grafana（与业务容器同 compose 网络）
 # 树莓派资源有限：短保留、低内存；仅本机/局域网访问，勿经 frp 暴露。
+#
+# 注意：多 -f 合并时，相对卷路径按「项目目录」（通常是仓库根，含 docker-compose.yml）解析，
+# 因此必须写成 ./deploy/...，不能写成相对本文件的 ./prometheus。
 
 services:
   prometheus:
@@ -12,7 +15,7 @@ services:
       - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-512MB}
       - --web.enable-lifecycle
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
@@ -32,8 +35,8 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "${GRAFANA_PORT:-3000}:3000"

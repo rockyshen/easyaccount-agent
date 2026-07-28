@@ -55,6 +55,16 @@ ensure_host_log_dir() {
 
 ensure_host_log_dir "${HOST_LOG_DIR}"
 
+# 旧版 compose 相对路径错误时，Docker 会在仓库根把不存在的「文件」建成目录，导致再次挂载失败
+if [[ -e ./prometheus ]]; then
+  echo "清理仓库根误创建的 ./prometheus（正确路径为 deploy/prometheus）"
+  rm -rf ./prometheus
+fi
+if [[ -e ./grafana ]]; then
+  echo "清理仓库根误创建的 ./grafana（正确路径为 deploy/grafana）"
+  rm -rf ./grafana
+fi
+
 echo "== 4. Docker 构建并启动（业务 + Prometheus + Grafana） =="
 COMPOSE_FILES=(
   -f docker-compose.yml
