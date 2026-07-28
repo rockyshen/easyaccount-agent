@@ -41,17 +41,17 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `GET /api/actions` | 收支类型列表（全局只读） |
 | `GET /api/types?actionId=` | 某收支类型下的分类树（只读） |
 | `GET /api/dashboard` | 概览：总资产/净资产/年度汇总/账户占比 |
-| `WS /ws?token=` | WebSocket 流式对话（需有效 token） |
+| `POST /api/chat` | SSE 流式对话（需 Bearer；详见 `docs/ios-swift-sse-handoff.md`） |
 
-业务 REST（accounts / actions / types / dashboard）均需 `Authorization: Bearer {token}`；失败多为 `{ "message": "..." }`。  
+业务 REST（accounts / actions / types / dashboard / chat）均需 `Authorization: Bearer {token}`；失败多为 `{ "message": "..." }`。  
 分类目前**仅查询**，无增删改接口。  
-`GET /chat` SSE **已下线**。
+`WS /ws` **已下线**，请改用 `POST /api/chat`。
 
 ## 注册与登录
 
-1. 无账号：`POST /api/auth/register` → 存 token → 连 WS
+1. 无账号：`POST /api/auth/register` → 存 token → 调 SSE 聊天
 2. 有账号：`POST /api/auth/login` → 存 token
-3. 之后启动：`GET /api/auth/me`；有效则直接连 WS
+3. 之后启动：`GET /api/auth/me`；有效则可直接 `POST /api/chat`
 4. **单端登录**：再次登录会踢掉旧 token
 5. 建议执行 `scripts/alter_user_name_unique.sql` 给 `user.name` 加唯一索引
 
@@ -80,10 +80,22 @@ ReactAgent → Tools → LedgerFacade → *Service → MyBatis → MySQL (`yd_jz
 ## 对话记忆（跨重启）
 
 - Agent 使用 `MysqlSaver`，checkpoint 落在本库 `yd_jz`（`GRAPH_THREAD` / `GRAPH_CHECKPOINT`）
-- WebSocket 会话键：`threadId = u-{userId}`，**一用户一条持久会话链**；用户间互不串上下文
+- SSE 对话键：`threadId = u-{userId}`，**一用户一条持久会话链**；用户间互不串上下文
 - 服务重启 / Redeploy 后，同用户续聊仍可带上历史 Agent 状态
 - 每次模型调用会注入服务器当前日期（`Asia/Shanghai`），避免「今天」被模型误判为训练截止年份
 - 本阶段不做多会话房间、前端可见历史列表（另开迭代）
+
+### SSE 冒烟
+
+```bash
+curl -N -X POST http://localhost:8088/api/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"content":"查看我的账户"}'
+```
+
+事件：`started` → `message_delta`* → `message_end`（或 `error`）。同用户并发第二轮返回 HTTP `409`。
 
 ### 清空某用户记忆
 

@@ -2,8 +2,8 @@
 
 | 环境 | 地址 |
 |------|------|
-| Pi 本机 | http://127.0.0.1:8088 · ws://127.0.0.1:8088/ws?token=xxx |
-| 公网 | http://118.25.46.207:6088 · ws://118.25.46.207:6088/ws?token=xxx |
+| Pi 本机 | http://127.0.0.1:8088 · `POST /api/chat`（SSE） |
+| 公网 | http://118.25.46.207:6088 · `POST /api/chat`（SSE） |
 | Prometheus | http://127.0.0.1:9090（仅本机/局域网） |
 | Grafana | http://127.0.0.1:3000（仅本机/局域网） |
 
@@ -39,7 +39,7 @@ deploy/docker-compose.monitor.yml
 | `GET /actuator/health` | Actuator 健康 |
 | `GET /actuator/prometheus` | Micrometer Prometheus 抓取 |
 
-Grafana 预置仪表盘：**EasyAccount Agent**（JVM、HTTP、WS 会话、对话耗时、Tool 调用、登录）。
+Grafana 预置仪表盘：**EasyAccount Agent**（JVM、HTTP、SSE 对话、Tool 调用、登录）。
 
 **安全**：`9090` / `3000` / `/actuator/prometheus` 仅供树莓派本机或内网使用，不要通过 frp 映射到公网。
 

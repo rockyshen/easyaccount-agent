@@ -33,7 +33,7 @@
       ]
     },
     {
-      "title": "WebSocket 在线会话",
+      "title": "SSE 进行中对话",
       "type": "stat",
       "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
       "id": 2,
@@ -45,8 +45,8 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
       "targets": [
         {
-          "expr": "easyaccount_ws_sessions{application=\"easyaccount-agent\"}",
-          "legendFormat": "sessions",
+          "expr": "easyaccount_sse_active{application=\"easyaccount-agent\"}",
+          "legendFormat": "active",
           "refId": "A"
         }
       ]
@@ -85,7 +85,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(easyaccount_ws_chat_seconds_bucket{application=\"easyaccount-agent\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(easyaccount_sse_chat_seconds_bucket{application=\"easyaccount-agent\"}[5m])))",
           "legendFormat": "p95 {{outcome}}",
           "refId": "A"
         }
@@ -106,7 +106,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (outcome) (rate(easyaccount_ws_chat_seconds_count{application=\"easyaccount-agent\"}[5m]))",
+          "expr": "sum by (outcome) (rate(easyaccount_sse_chat_seconds_count{application=\"easyaccount-agent\"}[5m]))",
           "legendFormat": "{{outcome}}",
           "refId": "A"
         }
