@@ -11,6 +11,10 @@ spring:
     name: easyaccount-agent
   config:
     import: optional:classpath:application-local.yml
+  mvc:
+    async:
+      # SSE 对话可能较长（模型 + 多轮 Tool）
+      request-timeout: ${SPRING_MVC_ASYNC_REQUEST_TIMEOUT:300000}
   datasource:
     url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/yd_jz?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: ${DB_USER}
@@ -42,7 +46,7 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
-        easyaccount.ws.chat: true
+        easyaccount.sse.chat: true
         easyaccount.tool.calls: true
   prometheus:
     metrics:

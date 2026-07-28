@@ -10,10 +10,12 @@
 
 ## 1. 环境
 
-| 环境 | Base URL | WebSocket |
-|------|----------|-----------|
-| 本机 / Pi | `http://127.0.0.1:8088` | `ws://127.0.0.1:8088/ws?token=<token>` |
-| 公网 | `http://118.25.46.207:6088` | `ws://118.25.46.207:6088/ws?token=<token>` |
+| 环境 | Base URL |
+|------|----------|
+| 本机 / Pi | `http://127.0.0.1:8088` |
+| 公网 | `http://118.25.46.207:6088` |
+
+> 聊天已改为 **SSE**（`POST /api/chat`），详见 [`docs/ios-swift-sse-handoff.md`](./ios-swift-sse-handoff.md)。`WS /ws` 已下线。
 
 - 时区业务约定：`Asia/Shanghai`
 - 金额字段一律 **String**（两位小数，如 `"12.50"`），Swift 侧用 `Decimal`，不要用 `Double` 做业务运算
@@ -86,7 +88,7 @@ Header: `Authorization: Bearer <token>`（可缺，服务端仍返回成功）
 ### 2.6 App 启动流程（建议）
 
 1. 读 Keychain token → `GET /api/auth/me`
-2. `200` → 进主页；可同时连 `WS /ws?token=`
+2. `200` → 进主页；聊天按需 `POST /api/chat`（SSE，见 `ios-swift-sse-handoff.md`）
 3. `401` → 清 Keychain → 登录页
 4. 任意业务接口 `401` → 同登出，提示「登录已失效 / 已在其他设备登录」
 
@@ -424,15 +426,15 @@ UI：顶部总资产 / 净资产 + 年度收入支出结余；下方账户列表
 
 ## 7. 实现清单（给 Swift Agent）
 
-按侧栏三项实现原生页（**不要**用 WebSocket 聊天驱动这些管理页）：
+按侧栏三项实现原生页（**不要**用聊天 SSE 驱动这些管理页）：
 
 1. **鉴权层**：login / register / me / logout + Keychain  
 2. **账户管理页**：`GET/POST/PUT/DELETE /api/accounts`  
 3. **分类管理页**（只读）：`GET /api/actions` + `GET /api/types?actionId=`  
 4. **概览分析页**：`GET /api/dashboard`  
-5. （可选，独立）聊天助手：`WS /ws?token=` — 与上述三页解耦  
+5. （可选，独立）聊天助手：`POST /api/chat` SSE — 见 `ios-swift-sse-handoff.md`  
 
-联调顺序建议：公网 Base URL → login → me → dashboard → accounts → actions/types。
+联调顺序建议：公网 Base URL → login → me → dashboard → accounts → actions/types → chat SSE。
 
 ### 7.1 curl 冒烟（部署后）
 
@@ -473,7 +475,7 @@ curl -s "$BASE/api/types?actionId=2" -H "Authorization: Bearer $TOKEN" | jq .
 | GET | `/api/actions` | Bearer | 收支类型（只读） |
 | GET | `/api/types?actionId=` | Bearer | 分类树（只读） |
 | GET | `/api/dashboard` | Bearer | 概览分析 |
-| WS | `/ws?token=` | token | 聊天助手（非本三页必需） |
+| POST | `/api/chat` | Bearer | SSE 流式对话（见 `ios-swift-sse-handoff.md`） |
 
 ---
 
@@ -481,6 +483,6 @@ curl -s "$BASE/api/types?actionId=2" -H "Authorization: Bearer $TOKEN" | jq .
 
 - 分类 / 收支类型的新增、改名、删除  
 - 仪表盘月度明细 `monthDetails`（后端未填充）  
-- 用自然语言 WebSocket 替代上述 REST 管理页  
+- 用自然语言聊天替代上述 REST 管理页  
 
 后端实现参考 PR：账户/分类/概览 REST（`/api/accounts` · `/api/actions` · `/api/types` · `/api/dashboard`）。

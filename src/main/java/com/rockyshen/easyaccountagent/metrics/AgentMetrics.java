@@ -9,33 +9,34 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
- * 业务埋点：WebSocket、鉴权、Agent Tool。
+ * 业务埋点：SSE 对话、鉴权、Agent Tool。
  */
 @Component
 public class AgentMetrics {
 
     private final MeterRegistry registry;
-    private final AtomicInteger wsSessions = new AtomicInteger();
+    private final AtomicInteger sseActive = new AtomicInteger();
 
     public AgentMetrics(MeterRegistry registry) {
         this.registry = registry;
-        registry.gauge("easyaccount.ws.sessions", wsSessions);
+        registry.gauge("easyaccount.sse.active", sseActive);
     }
 
-    public void wsConnected() {
-        wsSessions.incrementAndGet();
+    public void sseStreamStarted() {
+        sseActive.incrementAndGet();
     }
 
-    public void wsDisconnected() {
-        wsSessions.updateAndGet(v -> Math.max(0, v - 1));
+    public void sseStreamFinished() {
+        sseActive.updateAndGet(v -> Math.max(0, v - 1));
     }
 
-    public void wsMessageReceived(String type) {
-        Counter.builder("easyaccount.ws.messages")
-                .description("WebSocket 收到的客户端消息数")
-                .tag("type", type == null ? "unknown" : type)
+    public void chatBusy() {
+        Counter.builder("easyaccount.sse.busy")
+                .description("SSE 对话因忙拒绝次数")
                 .register(registry)
                 .increment();
+        Timer.Sample sample = Timer.start(registry);
+        stopChat(sample, "busy");
     }
 
     public Timer.Sample startChat() {
@@ -44,8 +45,8 @@ public class AgentMetrics {
 
     /** outcome: success | error | busy */
     public void stopChat(Timer.Sample sample, String outcome) {
-        sample.stop(Timer.builder("easyaccount.ws.chat")
-                .description("WebSocket Agent 对话耗时")
+        sample.stop(Timer.builder("easyaccount.sse.chat")
+                .description("SSE Agent 对话耗时")
                 .tag("outcome", outcome == null ? "error" : outcome)
                 .register(registry));
     }

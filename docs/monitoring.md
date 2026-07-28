@@ -23,9 +23,9 @@ Jenkins 在 `master` push 后执行 `deploy/docker-up-pi.sh`，同时部署业�
 
 | Micrometer 名 | Prometheus 名（示例） | 类型 | 标签 |
 |---|---|---|---|
-| `easyaccount.ws.sessions` | `easyaccount_ws_sessions` | Gauge | — |
-| `easyaccount.ws.messages` | `easyaccount_ws_messages_total` | Counter | `type` |
-| `easyaccount.ws.chat` | `easyaccount_ws_chat_seconds_*` | Timer | `outcome` |
+| `easyaccount.sse.active` | `easyaccount_sse_active` | Gauge | — |
+| `easyaccount.sse.chat` | `easyaccount_sse_chat_seconds_*` | Timer | `outcome` |
+| `easyaccount.sse.busy` | `easyaccount_sse_busy_total` | Counter | — |
 | `easyaccount.tool.calls` | `easyaccount_tool_calls_seconds_*` | Timer | `tool`, `outcome` |
 | `easyaccount.auth.login` | `easyaccount_auth_login_total` | Counter | `result` |
 | `easyaccount.auth.register` | `easyaccount_auth_register_total` | Counter | `result` |
@@ -35,7 +35,7 @@ Jenkins 在 `master` push 后执行 `deploy/docker-up-pi.sh`，同时部署业�
 
 - `metrics/AgentMetrics.java`
 - `metrics/MeteredToolCallback.java`（包装 Tool，保持 `StateAwareToolCallback`）
-- `controller/WebSocketHandler.java`
+- `controller/ChatSseController.java`
 - `controller/AuthController.java`
 
 ## 本地验证

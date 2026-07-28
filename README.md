@@ -26,17 +26,17 @@ mvn spring-boot:run
 | `GET/POST/PUT/DELETE /api/accounts` | 账户管理（需 Bearer） |
 | `GET /api/actions` · `GET /api/types?actionId=` | 分类只读（需 Bearer） |
 | `GET /api/dashboard` | 概览分析（需 Bearer） |
-| `WS /ws?token=` | WebSocket 对话（需 token） |
+| `POST /api/chat` | SSE 流式对话（需 Bearer，`text/event-stream`） |
 
-详见证 `docs/easyaccounts-agent-usage.md`。
+详见证 `docs/easyaccounts-agent-usage.md`；iOS SSE 见 `docs/ios-swift-sse-handoff.md`。
 
 ## 监控
 
 Micrometer → `/actuator/prometheus` → Prometheus → Grafana。业务埋点包括：
 
-- `easyaccount.ws.sessions`：WebSocket 在线数
-- `easyaccount.ws.chat`：对话耗时（outcome=success/error/busy）
-- `easyaccount.ws.messages`：WS 消息计数
+- `easyaccount.sse.active`：进行中的 SSE 对话数
+- `easyaccount.sse.chat`：对话耗时（outcome=success/error/busy）
+- `easyaccount.sse.busy`：因忙拒绝次数
 - `easyaccount.tool.calls`：Agent Tool 调用耗时
 - `easyaccount.auth.login|register|logout`：鉴权事件
 

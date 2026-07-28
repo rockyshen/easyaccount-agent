@@ -22,12 +22,12 @@ class AgentMetricsTest {
     }
 
     @Test
-    void wsSessionGaugeTracksConnectDisconnect() {
-        metrics.wsConnected();
-        metrics.wsConnected();
-        assertEquals(2.0, registry.get("easyaccount.ws.sessions").gauge().value());
-        metrics.wsDisconnected();
-        assertEquals(1.0, registry.get("easyaccount.ws.sessions").gauge().value());
+    void sseActiveGaugeTracksStartFinish() {
+        metrics.sseStreamStarted();
+        metrics.sseStreamStarted();
+        assertEquals(2.0, registry.get("easyaccount.sse.active").gauge().value());
+        metrics.sseStreamFinished();
+        assertEquals(1.0, registry.get("easyaccount.sse.active").gauge().value());
     }
 
     @Test
@@ -38,12 +38,15 @@ class AgentMetricsTest {
         metrics.authLogout();
         var sample = metrics.startChat();
         metrics.stopChat(sample, "success");
+        metrics.chatBusy();
 
         assertEquals(1.0, registry.get("easyaccount.auth.login").tag("result", "success").counter().count());
         assertEquals(1.0, registry.get("easyaccount.auth.login").tag("result", "failure").counter().count());
         assertEquals(1.0, registry.get("easyaccount.auth.register").tag("result", "success").counter().count());
         assertEquals(1.0, registry.get("easyaccount.auth.logout").counter().count());
-        assertEquals(1.0, registry.get("easyaccount.ws.chat").tag("outcome", "success").timer().count());
+        assertEquals(1.0, registry.get("easyaccount.sse.chat").tag("outcome", "success").timer().count());
+        assertEquals(1.0, registry.get("easyaccount.sse.chat").tag("outcome", "busy").timer().count());
+        assertEquals(1.0, registry.get("easyaccount.sse.busy").counter().count());
     }
 
     @Test
