@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * SSE 下行事件 JSON（event 名与 type 字段一致）。
- * started / message_delta / message_end / error
+ * started / message_delta / message_end / error / resume（可选）
  */
 @Data
 @Builder
@@ -19,4 +19,10 @@ public class ChatServerEvent {
     private String type;
     private String content;
     private String message;
+    private String streamId;
+    private Long eventId;
+    /** resume 事件可选字段 */
+    private Long afterEventId;
+    private Long serverLastEventId;
+    private String status;
 }

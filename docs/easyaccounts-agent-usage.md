@@ -22,6 +22,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 
 1. `scripts/alter_account_type.sql`（信用卡 `account_type`，若未执行过）
 2. `scripts/alter_auth_and_user_isolation.sql`（`auth_token`、清空测试账本、`user_id`）
+3. `scripts/chat_stream_ddl.sql`（SSE 断点续传；应用启动也会 `CREATE IF NOT EXISTS`）
 
 对话记忆表 `GRAPH_THREAD` / `GRAPH_CHECKPOINT` 由应用启动时 `MysqlSaver`（`CREATE_IF_NOT_EXISTS`）自动创建，一般无需手工 DDL。若运维希望与应用解耦，可参考 `scripts/graph_checkpoint_ddl.sql`。
 
@@ -42,10 +43,14 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `GET /api/types?actionId=` | 某收支类型下的分类树（只读） |
 | `GET /api/dashboard` | 概览：总资产/净资产/年度汇总/账户占比 |
 | `POST /api/chat` | SSE 流式对话（需 Bearer；详见 `docs/ios-swift-sse-handoff.md`） |
+| `GET /api/chat/streams/{streamId}` | SSE 断点续传（`?afterEventId=`；见 `docs/ios-swift-sse-resume-handoff.md`） |
+| `POST /api/chat/streams/{streamId}/cancel` | 显式取消本轮生成 |
+| `GET /api/chat/streams/{streamId}/status` | 流状态 JSON |
 
 业务 REST（accounts / actions / types / dashboard / chat）均需 `Authorization: Bearer {token}`；失败多为 `{ "message": "..." }`。  
 分类目前**仅查询**，无增删改接口。  
-`WS /ws` **已下线**，请改用 `POST /api/chat`。
+`WS /ws` **已下线**，请改用 `POST /api/chat`。  
+客户端断线**不会**取消生成；仅 cancel 接口会停止并释放 busy。
 
 ## 注册与登录
 
