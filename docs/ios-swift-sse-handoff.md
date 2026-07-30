@@ -2,10 +2,10 @@
 
 > 面向：Swift 客户端 Agent / iOS 开发  
 > 后端：`easyaccount-agent`  
-> 文档日期：2026-07-28  
-> 状态：**WebSocket 已下线，聊天统一为 `POST /api/chat` SSE**
+> 文档日期：2026-07-29  
+> 状态：**WebSocket 已下线，聊天统一为 `POST /api/chat` SSE**；断点续传见 `docs/ios-swift-sse-resume-handoff.md`
 
-账户 / 分类 / 概览 REST 仍见 `docs/ios-swift-handoff.md`。本文只覆盖鉴权 + 流式对话。
+账户 / 分类 / 概览 REST 仍见 `docs/ios-swift-handoff.md`。本文覆盖鉴权 + 基础流式对话；**后台断线续传、cancel、streamId** 以续传文档为准。
 
 ---
 
@@ -68,12 +68,12 @@ data: <json>
 
 | event | data JSON | 说明 |
 |-------|-----------|------|
-| `started` | `{ "type":"started", "content":"ok" }` | 流开始 |
-| `message_delta` | `{ "type":"message_delta", "content":"<增量文本>" }` | 模型增量；按序拼接 |
-| `message_end` | `{ "type":"message_end", "content":"<完整回复>" }` | 本轮结束；`content` 为全部 delta 拼接 |
-| `error` | `{ "type":"error", "message":"<原因>" }` | 本轮失败（HTTP 可能仍为 200） |
+| `started` | `{ "type":"started", "content":"ok", "streamId", "eventId" }` | 流开始；请持久化 `streamId` |
+| `message_delta` | `{ "type":"message_delta", "content":"<增量>", "streamId", "eventId" }` | 模型增量；按序拼接 |
+| `message_end` | `{ "type":"message_end", "content":"<完整回复>", "streamId", "eventId" }` | 本轮结束；`content` 为全部 delta 拼接 |
+| `error` | `{ "type":"error", "message":"<原因>", "streamId", "eventId" }` | 本轮失败（HTTP 可能仍为 200） |
 
-解析建议：以 `event` 名为准；`data` 里的 `type` 与 event 名一致，可作校验。
+解析建议：以 `event` 名为准；`data` 里的 `type` 与 event 名一致，可作校验。帧上可能带 `id: <eventId>`。旧客户端忽略未知字段仍可用。
 
 ### 3.4 非流式 HTTP 错误（开始推流前）
 
@@ -81,9 +81,9 @@ data: <json>
 |------|------|------|
 | `400` | `{ "message":"消息不能为空" }` | content 空 |
 | `401` | `{ "message":"未登录或会话已失效" }` | token 无效 |
-| `409` | `{ "message":"上一条消息仍在处理中" }` | 同用户并发第二轮 |
+| `409` | `{ "message":"上一条消息仍在处理中", "streamId"?, ... }` | 同用户并发第二轮；可改走续传 |
 
-收到 `409` 应禁用发送按钮，等上一轮 `message_end` / `error` / 取消完成。
+收到 `409` 应禁用发送或先 `GET` 续传旧流；详见续传文档。
 
 ### 3.5 会话记忆
 
@@ -107,7 +107,7 @@ data: <json>
 3. 若 `statusCode` 为 401/409/400：读完 body 解析 `message`，不要当 SSE
 4. 若 `200`：按行解析 `event:` / `data:`，空行提交一条事件
 5. UI：`message_delta` → 追加气泡；`message_end` → 定稿；`error` → 提示
-6. 用户点停止：`task.cancel()` → 服务端连接中断并释放 busy
+6. 用户点停止：调用 `POST /api/chat/streams/{streamId}/cancel`（不要仅靠断连）；进后台只需断开连接以续传
 
 ### 4.3 最小解析骨架（示意）
 
@@ -116,6 +116,8 @@ struct ChatServerEvent: Decodable {
     let type: String
     let content: String?
     let message: String?
+    let streamId: String?
+    let eventId: Int64?
 }
 
 enum SseChatEvent {
@@ -173,7 +175,7 @@ curl -N -X POST "http://127.0.0.1:8088/api/chat" \
 | 增量展示 | 对 `message_delta` 做主线程追加，避免整段闪烁 |
 | 失败 | `error` 事件或 HTTP 4xx 用 `message` 文案 |
 | 401 | 清 Keychain，回登录 |
-| 后台 | App 进后台可能断流；回前台提示「已中断，请重发」 |
+| 后台 | App 进后台会断 SSE，但**不要 cancel**；回前台用续传 GET（见续传文档） |
 | 管理页 | 账户/分类/概览继续走 REST，**不要**用聊天 SSE 驱动表单 |
 
 ---
@@ -198,5 +200,6 @@ curl -N -X POST "http://127.0.0.1:8088/api/chat" \
 - [ ] 空 content → 400  
 - [ ] 错误 token → 401  
 - [ ] 连发两轮未等结束 → 第二轮 409  
-- [ ] 取消 task 后可再发一轮  
+- [ ] 停止按钮走 cancel 后可再发一轮  
+- [ ] 后台断线后续传见 `docs/ios-swift-sse-resume-handoff.md`  
 - [ ] 公网仅测业务端口（如 6088），勿依赖 Grafana 端口  

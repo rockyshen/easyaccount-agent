@@ -27,8 +27,12 @@ mvn spring-boot:run
 | `GET /api/actions` · `GET /api/types?actionId=` | 分类只读（需 Bearer） |
 | `GET /api/dashboard` | 概览分析（需 Bearer） |
 | `POST /api/chat` | SSE 流式对话（需 Bearer，`text/event-stream`） |
+| `GET /api/chat/streams/{streamId}` | SSE 断点续传（`afterEventId`） |
+| `POST /api/chat/streams/{streamId}/cancel` | 显式取消本轮生成 |
+| `GET /api/chat/streams/{streamId}/status` | 流状态 JSON（可选） |
 
-详见证 `docs/easyaccounts-agent-usage.md`；iOS SSE 见 `docs/ios-swift-sse-handoff.md`。
+详见证 `docs/easyaccounts-agent-usage.md`；iOS SSE 见 `docs/ios-swift-sse-handoff.md`；断点续传见 `docs/ios-swift-sse-resume-handoff.md`。  
+DB：首次启动自动建 `chat_stream` / `chat_stream_event`，也可手动执行 `scripts/chat_stream_ddl.sql`。
 
 ## 监控
 
