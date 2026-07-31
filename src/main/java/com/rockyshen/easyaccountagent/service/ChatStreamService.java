@@ -2,8 +2,7 @@ package com.rockyshen.easyaccountagent.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rockyshen.easyaccountagent.dao.ChatStreamDao;
-import com.rockyshen.easyaccountagent.dao.ChatStreamEventDao;
+import com.rockyshen.easyaccountagent.dao.ChatStreamJdbcRepository;
 import com.rockyshen.easyaccountagent.entity.ChatStream;
 import com.rockyshen.easyaccountagent.entity.ChatStreamEvent;
 import com.rockyshen.easyaccountagent.model.chat.ChatServerEvent;
@@ -22,6 +21,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -44,8 +44,7 @@ public class ChatStreamService {
 
     private static final Duration STREAM_TTL = Duration.ofMinutes(30);
 
-    private final ChatStreamDao chatStreamDao;
-    private final ChatStreamEventDao chatStreamEventDao;
+    private final ChatStreamJdbcRepository repo;
     private final ObjectMapper objectMapper;
 
     /** userId -> 当前 running 的 streamId（进程内 busy） */
@@ -53,11 +52,8 @@ public class ChatStreamService {
     /** streamId -> 进行中会话 */
     private final ConcurrentHashMap<String, ActiveSession> sessions = new ConcurrentHashMap<>();
 
-    public ChatStreamService(ChatStreamDao chatStreamDao,
-                             ChatStreamEventDao chatStreamEventDao,
-                             ObjectMapper objectMapper) {
-        this.chatStreamDao = chatStreamDao;
-        this.chatStreamEventDao = chatStreamEventDao;
+    public ChatStreamService(ChatStreamJdbcRepository repo, ObjectMapper objectMapper) {
+        this.repo = repo;
         this.objectMapper = objectMapper;
     }
 
@@ -65,7 +61,7 @@ public class ChatStreamService {
     void recoverStaleRunningStreams() {
         List<ChatStream> stuck;
         try {
-            stuck = chatStreamDao.findAllRunning();
+            stuck = repo.findAllRunning();
         } catch (Exception e) {
             log.warn("[ChatStream] 启动恢复跳过（表可能尚未创建）: {}", e.toString());
             return;
@@ -93,7 +89,7 @@ public class ChatStreamService {
                 .eventId(nextId)
                 .build();
         persistEvent(stream.getStreamId(), nextId, "error", payload, now);
-        chatStreamDao.updateStatus(
+        repo.updateStatus(
                 stream.getStreamId(),
                 STATUS_FAILED,
                 stream.getFullText() == null ? "" : stream.getFullText(),
@@ -105,28 +101,80 @@ public class ChatStreamService {
         return runningByUser.containsKey(userId);
     }
 
+    /**
+     * 优先内存中的 running 会话，避免仅因 DB 读失败导致 409 附带信息丢失。
+     */
     public ChatStream findRunningStream(int userId) {
         String streamId = runningByUser.get(userId);
         if (streamId != null) {
-            ChatStream s = chatStreamDao.findById(streamId);
-            if (s != null) {
-                return s;
+            ActiveSession session = sessions.get(streamId);
+            if (session != null) {
+                return snapshot(session);
+            }
+            try {
+                ChatStream s = repo.findById(streamId);
+                if (s != null) {
+                    return s;
+                }
+            } catch (Exception e) {
+                log.warn("[ChatStream] findRunningStream DB 失败 streamId={}: {}", streamId, e.toString());
             }
         }
-        return chatStreamDao.findRunningByUserId(userId);
+        try {
+            return repo.findRunningByUserId(userId);
+        } catch (Exception e) {
+            log.warn("[ChatStream] findRunningByUserId 失败 userId={}: {}", userId, e.toString());
+            return null;
+        }
     }
 
     public ChatStream getStream(String streamId) {
-        return chatStreamDao.findById(streamId);
+        ActiveSession session = sessions.get(streamId);
+        try {
+            ChatStream fromDb = repo.findById(streamId);
+            if (fromDb != null) {
+                return fromDb;
+            }
+        } catch (Exception e) {
+            log.error("[ChatStream] getStream DB 失败 streamId={}: {}", streamId, e.toString());
+            if (session != null) {
+                return snapshot(session);
+            }
+            throw e;
+        }
+        return session == null ? null : snapshot(session);
+    }
+
+    private ChatStream snapshot(ActiveSession session) {
+        ChatStream s = new ChatStream();
+        s.setStreamId(session.streamId);
+        s.setUserId(session.userId);
+        s.setStatus(session.status);
+        synchronized (session.lock) {
+            s.setFullText(session.fullText.toString());
+        }
+        s.setLastEventId(session.lastEventId.get());
+        s.setExpireAt(new Date(System.currentTimeMillis() + STREAM_TTL.toMillis()));
+        return s;
     }
 
     public boolean isExpired(ChatStream stream) {
-        return stream == null || stream.getExpireAt() == null || !stream.getExpireAt().after(new Date());
+        if (stream == null) {
+            return true;
+        }
+        // 内存快照可能没有准确 expireAt；仅 DB 行按 expireAt 判断
+        if (sessions.containsKey(stream.getStreamId())) {
+            return false;
+        }
+        return stream.getExpireAt() == null || !stream.getExpireAt().after(new Date());
+    }
+
+    public boolean isOwner(ChatStream stream, int userId) {
+        return stream != null && stream.getUserId() != null && Objects.equals(stream.getUserId(), userId);
     }
 
     /**
      * 原子占用 busy 并创建 running 流。若用户已忙则返回 {@code null}。
-     * 调用方须在生成结束时 {@link #releaseBusy(int, String)}。
      */
     public ActiveSession tryBeginStream(int userId) {
         String streamId = "s-" + UUID.randomUUID().toString().replace("-", "");
@@ -147,7 +195,7 @@ public class ChatStreamService {
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             row.setExpireAt(expireAt);
-            chatStreamDao.insert(row);
+            repo.insertStream(row);
 
             ActiveSession session = new ActiveSession(streamId, userId);
             sessions.put(streamId, session);
@@ -189,10 +237,6 @@ public class ChatStreamService {
         return sessions.get(streamId);
     }
 
-    /**
-     * 分配 eventId、写入 DB、更新 fullText，并尝试推给当前订阅者。
-     * 推送失败仅拆掉订阅者，不中断生成。
-     */
     public long publish(ActiveSession session, String eventName, ChatServerEvent.ChatServerEventBuilder builder) {
         long eventId;
         String fullTextSnapshot;
@@ -209,7 +253,7 @@ public class ChatStreamService {
 
         Date now = new Date();
         persistEvent(session.streamId, eventId, eventName, payload, now);
-        chatStreamDao.updateProgress(session.streamId, fullTextSnapshot, eventId, now);
+        repo.updateProgress(session.streamId, fullTextSnapshot, eventId, now);
 
         SseEmitter emitter;
         synchronized (session.lock) {
@@ -228,7 +272,6 @@ public class ChatStreamService {
         publish(session, "message_delta", ChatServerEvent.builder().content(chunk));
     }
 
-    /** @return true 若成功进入 completed */
     public boolean completeSuccessfully(ActiveSession session) {
         String full;
         synchronized (session.lock) {
@@ -239,12 +282,11 @@ public class ChatStreamService {
             full = session.fullText.toString();
         }
         publish(session, "message_end", ChatServerEvent.builder().content(full));
-        chatStreamDao.updateStatus(session.streamId, STATUS_COMPLETED, full, session.lastEventId.get(), new Date());
+        repo.updateStatus(session.streamId, STATUS_COMPLETED, full, session.lastEventId.get(), new Date());
         completeCurrentSubscriber(session);
         return true;
     }
 
-    /** @return true 若成功进入 failed */
     public boolean fail(ActiveSession session, String message) {
         synchronized (session.lock) {
             if (!STATUS_RUNNING.equals(session.status)) {
@@ -254,7 +296,7 @@ public class ChatStreamService {
         }
         String msg = message == null || message.isBlank() ? "生成失败" : message;
         publish(session, "error", ChatServerEvent.builder().message(msg));
-        chatStreamDao.updateStatus(
+        repo.updateStatus(
                 session.streamId,
                 STATUS_FAILED,
                 session.fullText.toString(),
@@ -265,17 +307,21 @@ public class ChatStreamService {
     }
 
     /**
-     * 显式取消：停止生成、写 error、释放 busy。对已 cancelled 幂等。
-     *
      * @return null 表示 404；ForbiddenStreamException 表示 403。
-     *         若刚取消了进行中的生成，map 含 {@code metricClosed}=true，调用方应 sseStreamFinished。
+     *         若刚取消了进行中的生成，map 含 {@code metricClosed}=true。
      */
     public Map<String, Object> cancel(String streamId, int userId) {
-        ChatStream stream = chatStreamDao.findById(streamId);
+        ChatStream stream;
+        try {
+            stream = getStream(streamId);
+        } catch (Exception e) {
+            log.error("[ChatStream] cancel 读取流失败 streamId={}", streamId, e);
+            stream = null;
+        }
         if (stream == null || isExpired(stream)) {
             return null;
         }
-        if (stream.getUserId() == null || stream.getUserId() != userId) {
+        if (!isOwner(stream, userId)) {
             throw new ForbiddenStreamException();
         }
         if (STATUS_CANCELLED.equals(stream.getStatus())) {
@@ -302,7 +348,7 @@ public class ChatStreamService {
             boolean metricClosed = false;
             if (becameCancelled) {
                 publish(session, "error", ChatServerEvent.builder().message("已取消"));
-                chatStreamDao.updateStatus(
+                repo.updateStatus(
                         streamId,
                         STATUS_CANCELLED,
                         session.fullText.toString(),
@@ -317,24 +363,24 @@ public class ChatStreamService {
                 body.put("metricClosed", true);
             }
             return body;
-        } else {
-            long nextId = (stream.getLastEventId() == null ? 0L : stream.getLastEventId()) + 1;
-            ChatServerEvent payload = ChatServerEvent.builder()
-                    .type("error")
-                    .message("已取消")
-                    .streamId(streamId)
-                    .eventId(nextId)
-                    .build();
-            persistEvent(streamId, nextId, "error", payload, new Date());
-            chatStreamDao.updateStatus(
-                    streamId,
-                    STATUS_CANCELLED,
-                    stream.getFullText() == null ? "" : stream.getFullText(),
-                    nextId,
-                    new Date());
-            runningByUser.compute(userId, (id, current) ->
-                    streamId.equals(current) ? null : current);
         }
+
+        long nextId = (stream.getLastEventId() == null ? 0L : stream.getLastEventId()) + 1;
+        ChatServerEvent payload = ChatServerEvent.builder()
+                .type("error")
+                .message("已取消")
+                .streamId(streamId)
+                .eventId(nextId)
+                .build();
+        persistEvent(streamId, nextId, "error", payload, new Date());
+        repo.updateStatus(
+                streamId,
+                STATUS_CANCELLED,
+                stream.getFullText() == null ? "" : stream.getFullText(),
+                nextId,
+                new Date());
+        runningByUser.compute(userId, (id, current) ->
+                streamId.equals(current) ? null : current);
         return statusBody(streamId, STATUS_CANCELLED);
     }
 
@@ -346,12 +392,10 @@ public class ChatStreamService {
     }
 
     /**
-     * 重放 afterEventId 之后的事件；若仍 running 则挂上 live。
-     *
      * @return 是否已挂接 live（false 表示连接应在重放后结束）
      */
     public boolean replayAndMaybeAttach(String streamId, long afterEventId, SseEmitter emitter) throws IOException {
-        ChatStream stream = chatStreamDao.findById(streamId);
+        ChatStream stream = getStream(streamId);
         ActiveSession session = sessions.get(streamId);
 
         long serverLast = stream.getLastEventId() == null ? 0L : stream.getLastEventId();
@@ -368,7 +412,7 @@ public class ChatStreamService {
                 .build());
 
         long cursor = afterEventId;
-        List<ChatStreamEvent> buffered = chatStreamEventDao.findAfter(streamId, cursor);
+        List<ChatStreamEvent> buffered = repo.findEventsAfter(streamId, cursor);
         for (ChatStreamEvent ev : buffered) {
             sendStoredEvent(emitter, ev);
             cursor = ev.getEventId();
@@ -376,7 +420,7 @@ public class ChatStreamService {
 
         if (session != null && STATUS_RUNNING.equals(session.status)) {
             synchronized (session.lock) {
-                List<ChatStreamEvent> more = chatStreamEventDao.findAfter(streamId, cursor);
+                List<ChatStreamEvent> more = repo.findEventsAfter(streamId, cursor);
                 for (ChatStreamEvent ev : more) {
                     sendStoredEvent(emitter, ev);
                     cursor = ev.getEventId();
@@ -399,7 +443,7 @@ public class ChatStreamService {
 
     private void ensureTerminalDelivered(String streamId, String status, long cursor, SseEmitter emitter)
             throws IOException {
-        List<ChatStreamEvent> after = chatStreamEventDao.findAfter(streamId, cursor);
+        List<ChatStreamEvent> after = repo.findEventsAfter(streamId, cursor);
         if (!after.isEmpty()) {
             for (ChatStreamEvent ev : after) {
                 sendStoredEvent(emitter, ev);
@@ -407,10 +451,9 @@ public class ChatStreamService {
             return;
         }
 
-        ChatStream stream = chatStreamDao.findById(streamId);
-        long lastId = stream.getLastEventId() == null ? 0L : stream.getLastEventId();
+        ChatStream stream = getStream(streamId);
+        long lastId = stream == null || stream.getLastEventId() == null ? 0L : stream.getLastEventId();
 
-        // 已对齐：正常无需再推；仅当完全无事件日志时按状态补终态
         if (cursor >= lastId) {
             if (lastId == 0 && STATUS_CANCELLED.equals(status)) {
                 sendToEmitter(emitter, 1L, "error", ChatServerEvent.builder()
@@ -430,7 +473,6 @@ public class ChatStreamService {
             return;
         }
 
-        // cursor < lastId 但 findAfter 为空（异常）：按状态补终态
         if (STATUS_CANCELLED.equals(status)) {
             sendToEmitter(emitter, lastId, "error", ChatServerEvent.builder()
                     .type("error")
@@ -445,7 +487,7 @@ public class ChatStreamService {
                     .streamId(streamId)
                     .eventId(lastId)
                     .build());
-        } else if (STATUS_COMPLETED.equals(status)) {
+        } else if (STATUS_COMPLETED.equals(status) && stream != null) {
             sendToEmitter(emitter, lastId, "message_end", ChatServerEvent.builder()
                     .type("message_end")
                     .content(stream.getFullText() == null ? "" : stream.getFullText())
@@ -472,7 +514,7 @@ public class ChatStreamService {
         row.setEventName(eventName);
         row.setDataJson(toJson(payload));
         row.setCreatedAt(now);
-        chatStreamEventDao.insert(row);
+        repo.insertEvent(row);
     }
 
     private void sendStoredEvent(SseEmitter emitter, ChatStreamEvent ev) throws IOException {
@@ -482,10 +524,6 @@ public class ChatStreamService {
                 .data(ev.getDataJson(), MediaType.APPLICATION_JSON));
     }
 
-    /**
-     * @param eventId 可为 null（如 resume 提示帧不占序号）
-     * @return false 表示发送失败
-     */
     public boolean sendToEmitter(SseEmitter emitter, Long eventId, String eventName, ChatServerEvent payload) {
         try {
             SseEmitter.SseEventBuilder builder = SseEmitter.event()
@@ -526,7 +564,7 @@ public class ChatStreamService {
         Date now = new Date();
         List<String> expiredIds;
         try {
-            expiredIds = chatStreamDao.findExpiredIds(now);
+            expiredIds = repo.findExpiredIds(now);
         } catch (Exception e) {
             log.debug("[ChatStream] 清理跳过: {}", e.toString());
             return;
@@ -535,17 +573,17 @@ public class ChatStreamService {
             return;
         }
         try {
-            chatStreamEventDao.deleteByStreamIds(expiredIds);
+            repo.deleteEventsByStreamIds(expiredIds);
         } catch (Exception e) {
             for (String id : expiredIds) {
                 try {
-                    chatStreamEventDao.deleteByStreamId(id);
+                    repo.deleteEventsByStreamId(id);
                 } catch (Exception ignored) {
                     // ignore
                 }
             }
         }
-        int n = chatStreamDao.deleteExpired(now);
+        int n = repo.deleteExpired(now);
         if (n > 0) {
             log.info("[ChatStream] 清理过期流 {} 条", n);
         }
@@ -567,7 +605,6 @@ public class ChatStreamService {
         public volatile String status = STATUS_RUNNING;
         public volatile SseEmitter subscriber;
         public volatile Disposable disposable;
-        /** 与 AgentMetrics.sseStreamStarted/Finished 成对，避免 cancel 与生成线程双减 */
         private final AtomicBoolean metricOpen = new AtomicBoolean(true);
 
         ActiveSession(String streamId, int userId) {
@@ -583,7 +620,6 @@ public class ChatStreamService {
             this.disposable = disposable;
         }
 
-        /** @return true 表示调用方应执行 sseStreamFinished */
         public boolean markMetricClosed() {
             return metricOpen.compareAndSet(true, false);
         }

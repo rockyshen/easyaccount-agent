@@ -1,8 +1,7 @@
 package com.rockyshen.easyaccountagent.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rockyshen.easyaccountagent.dao.ChatStreamDao;
-import com.rockyshen.easyaccountagent.dao.ChatStreamEventDao;
+import com.rockyshen.easyaccountagent.dao.ChatStreamJdbcRepository;
 import com.rockyshen.easyaccountagent.entity.ChatStream;
 import com.rockyshen.easyaccountagent.entity.ChatStreamEvent;
 import com.rockyshen.easyaccountagent.model.chat.ChatServerEvent;
@@ -40,9 +39,7 @@ import static org.mockito.Mockito.when;
 class ChatStreamServiceTest {
 
     @Mock
-    private ChatStreamDao chatStreamDao;
-    @Mock
-    private ChatStreamEventDao chatStreamEventDao;
+    private ChatStreamJdbcRepository repo;
 
     private ChatStreamService service;
     private final ConcurrentHashMap<String, ChatStream> store = new ConcurrentHashMap<>();
@@ -50,15 +47,15 @@ class ChatStreamServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ChatStreamService(chatStreamDao, chatStreamEventDao, new ObjectMapper());
+        service = new ChatStreamService(repo, new ObjectMapper());
 
         doAnswer(inv -> {
             ChatStream s = inv.getArgument(0);
             store.put(s.getStreamId(), copy(s));
             return null;
-        }).when(chatStreamDao).insert(any(ChatStream.class));
+        }).when(repo).insertStream(any(ChatStream.class));
 
-        when(chatStreamDao.findById(anyString())).thenAnswer(inv -> {
+        when(repo.findById(anyString())).thenAnswer(inv -> {
             ChatStream s = store.get(inv.getArgument(0, String.class));
             return s == null ? null : copy(s);
         });
@@ -72,7 +69,7 @@ class ChatStreamServiceTest {
                 s.setUpdatedAt(inv.getArgument(3));
             }
             return null;
-        }).when(chatStreamDao).updateProgress(anyString(), any(), anyLong(), any(Date.class));
+        }).when(repo).updateProgress(anyString(), any(), anyLong(), any(Date.class));
 
         doAnswer(inv -> {
             String id = inv.getArgument(0);
@@ -84,15 +81,15 @@ class ChatStreamServiceTest {
                 s.setUpdatedAt(inv.getArgument(4));
             }
             return null;
-        }).when(chatStreamDao).updateStatus(anyString(), anyString(), any(), anyLong(), any(Date.class));
+        }).when(repo).updateStatus(anyString(), anyString(), any(), anyLong(), any(Date.class));
 
         doAnswer(inv -> {
             ChatStreamEvent e = inv.getArgument(0);
             events.computeIfAbsent(e.getStreamId(), k -> new ArrayList<>()).add(e);
             return null;
-        }).when(chatStreamEventDao).insert(any(ChatStreamEvent.class));
+        }).when(repo).insertEvent(any(ChatStreamEvent.class));
 
-        when(chatStreamEventDao.findAfter(anyString(), anyLong())).thenAnswer(inv -> {
+        when(repo.findEventsAfter(anyString(), anyLong())).thenAnswer(inv -> {
             String id = inv.getArgument(0);
             long after = inv.getArgument(1);
             return events.getOrDefault(id, List.of()).stream()
@@ -100,8 +97,7 @@ class ChatStreamServiceTest {
                     .toList();
         });
 
-        when(chatStreamDao.findAllRunning()).thenReturn(List.of());
-        // recoverStale 已在构造后手动不触发；@PostConstruct 在纯 new 时不会跑
+        when(repo.findAllRunning()).thenReturn(List.of());
     }
 
     @Test
@@ -114,7 +110,7 @@ class ChatStreamServiceTest {
         ActiveSession b = service.tryBeginStream(1);
         assertNull(b);
 
-        verify(chatStreamDao, atLeastOnce()).insert(any(ChatStream.class));
+        verify(repo, atLeastOnce()).insertStream(any(ChatStream.class));
     }
 
     @Test
@@ -155,10 +151,24 @@ class ChatStreamServiceTest {
     void expiredStreamTreatedAsNotFoundOnCancel() {
         ActiveSession session = service.tryBeginStream(2);
         assertNotNull(session);
+        // 释放内存会话，仅留 DB 行并设为过期
+        service.releaseBusy(2, session.streamId);
         ChatStream row = store.get(session.streamId);
         row.setExpireAt(new Date(System.currentTimeMillis() - 1000));
 
         assertNull(service.cancel(session.streamId, 2));
+    }
+
+    @Test
+    void getStreamFallsBackToMemoryWhenDbThrows() {
+        ActiveSession session = service.tryBeginStream(9);
+        assertNotNull(session);
+        when(repo.findById(session.streamId)).thenThrow(new RuntimeException("db down"));
+
+        ChatStream s = service.getStream(session.streamId);
+        assertNotNull(s);
+        assertEquals(session.streamId, s.getStreamId());
+        assertEquals(9, s.getUserId());
     }
 
     private static ChatStream copy(ChatStream s) {

@@ -2,6 +2,7 @@ package com.rockyshen.easyaccountagent.controller;
 
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.dto.ChatRequestDto;
 import com.rockyshen.easyaccountagent.entity.ChatStream;
@@ -10,6 +11,7 @@ import com.rockyshen.easyaccountagent.model.chat.ChatServerEvent;
 import com.rockyshen.easyaccountagent.service.ChatStreamService;
 import com.rockyshen.easyaccountagent.service.ChatStreamService.ActiveSession;
 import io.micrometer.core.instrument.Timer;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -27,6 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
@@ -41,12 +45,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Agent 流式对话与断点续传。
- * <ul>
- *   <li>{@code POST /api/chat} — 开流</li>
- *   <li>{@code GET /api/chat/streams/{streamId}} — 续传 SSE</li>
- *   <li>{@code POST /api/chat/streams/{streamId}/cancel} — 显式取消</li>
- *   <li>{@code GET /api/chat/streams/{streamId}/status} — 流状态 JSON</li>
- * </ul>
  */
 @Slf4j
 @RestController
@@ -61,6 +59,7 @@ public class ChatSseController {
     private final ReactAgent easyAccountAgent;
     private final AgentMetrics agentMetrics;
     private final ChatStreamService chatStreamService;
+    private final ObjectMapper objectMapper;
     private final ExecutorService asyncExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "easyaccounts-sse-worker");
         t.setDaemon(true);
@@ -69,21 +68,23 @@ public class ChatSseController {
 
     public ChatSseController(@Qualifier("easyAccountAgent") ReactAgent easyAccountAgent,
                              AgentMetrics agentMetrics,
-                             ChatStreamService chatStreamService) {
+                             ChatStreamService chatStreamService,
+                             ObjectMapper objectMapper) {
         this.easyAccountAgent = easyAccountAgent;
         this.agentMetrics = agentMetrics;
         this.chatStreamService = chatStreamService;
+        this.objectMapper = objectMapper;
     }
 
-    @PostMapping(produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
-    public Object chat(@RequestBody(required = false) ChatRequestDto body) {
+    @PostMapping
+    public Object chat(@RequestBody(required = false) ChatRequestDto body,
+                       HttpServletResponse rawResponse) throws IOException {
         Integer userId = AuthContext.getUserIdOrNull();
         if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "未登录或会话已失效"));
+            return writeJson(rawResponse, HttpStatus.UNAUTHORIZED, "未登录或会话已失效");
         }
         if (body == null || body.getContent() == null || body.getContent().isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "消息不能为空"));
+            return writeJson(rawResponse, HttpStatus.BAD_REQUEST, "消息不能为空");
         }
 
         String content = body.getContent().trim();
@@ -93,19 +94,17 @@ public class ChatSseController {
             session = chatStreamService.tryBeginStream(userId);
         } catch (Exception e) {
             log.error("[EasyAccounts SSE] 创建流失败 userId={}", userId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "创建对话流失败"));
+            return writeJson(rawResponse, HttpStatus.INTERNAL_SERVER_ERROR, "创建对话流失败");
         }
         if (session == null) {
             agentMetrics.chatBusy();
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(conflictBody(userId));
+            return writeJson(rawResponse, HttpStatus.CONFLICT, conflictBody(userId));
         }
 
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
         agentMetrics.sseStreamStarted();
         chatStreamService.attachSubscriber(session, emitter);
 
-        // 断线只拆订阅，不取消生成、不释放 busy
         emitter.onCompletion(() -> chatStreamService.detachSubscriber(session, emitter));
         emitter.onTimeout(() -> {
             log.warn("[EasyAccounts SSE] 连接超时（生成仍继续） userId={} streamId={}",
@@ -122,30 +121,33 @@ public class ChatSseController {
         return emitter;
     }
 
-    @GetMapping(path = "/streams/{streamId}",
-            produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
+    @GetMapping(path = "/streams/{streamId}")
     public Object resume(@PathVariable("streamId") String streamId,
                          @RequestParam(value = "afterEventId", required = false) Long afterEventId,
-                         @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader) {
+                         @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader,
+                         HttpServletResponse rawResponse) throws IOException {
         Integer userId = AuthContext.getUserIdOrNull();
         if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "未登录或会话已失效"));
+            return writeJson(rawResponse, HttpStatus.UNAUTHORIZED, "未登录或会话已失效");
         }
 
         long after = resolveAfterEventId(afterEventId, lastEventIdHeader);
         if (after < 0) {
-            return ResponseEntity.badRequest().body(Map.of("message", "afterEventId 非法"));
+            return writeJson(rawResponse, HttpStatus.BAD_REQUEST, "afterEventId 非法");
         }
 
-        ChatStream stream = chatStreamService.getStream(streamId);
-        if (stream == null || chatStreamService.isExpired(stream)) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("message", "流不存在或已过期"));
+        ChatStream stream;
+        try {
+            stream = chatStreamService.getStream(streamId);
+        } catch (Exception e) {
+            log.error("[EasyAccounts SSE] 续传读取流失败 streamId={}", streamId, e);
+            return writeJson(rawResponse, HttpStatus.INTERNAL_SERVER_ERROR, "读取对话流失败");
         }
-        if (stream.getUserId() == null || stream.getUserId() != userId) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("message", "无权访问该流"));
+        if (stream == null || chatStreamService.isExpired(stream)) {
+            return writeJson(rawResponse, HttpStatus.NOT_FOUND, "流不存在或已过期");
+        }
+        if (!chatStreamService.isOwner(stream, userId)) {
+            return writeJson(rawResponse, HttpStatus.FORBIDDEN, "无权访问该流");
         }
 
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
@@ -194,15 +196,22 @@ public class ChatSseController {
             Map<String, Object> body = chatStreamService.cancel(streamId, userId);
             if (body == null) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("message", "流不存在或已过期"));
             }
             if (Boolean.TRUE.equals(body.remove("metricClosed"))) {
                 agentMetrics.sseStreamFinished();
             }
-            return ResponseEntity.ok(body);
+            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
         } catch (ChatStreamService.ForbiddenStreamException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("message", "无权访问该流"));
+        } catch (Exception e) {
+            log.error("[EasyAccounts SSE] cancel 失败 streamId={}", streamId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("message", "取消失败"));
         }
     }
 
@@ -211,15 +220,26 @@ public class ChatSseController {
         Integer userId = AuthContext.getUserIdOrNull();
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("message", "未登录或会话已失效"));
         }
-        ChatStream stream = chatStreamService.getStream(streamId);
+        ChatStream stream;
+        try {
+            stream = chatStreamService.getStream(streamId);
+        } catch (Exception e) {
+            log.error("[EasyAccounts SSE] status 读取流失败 streamId={}", streamId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("message", "读取对话流失败"));
+        }
         if (stream == null || chatStreamService.isExpired(stream)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("message", "流不存在或已过期"));
         }
-        if (stream.getUserId() == null || stream.getUserId() != userId) {
+        if (!chatStreamService.isOwner(stream, userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("message", "无权访问该流"));
         }
 
@@ -241,7 +261,7 @@ public class ChatSseController {
         body.put("lastEventId", lastEventId);
         body.put("contentLength", fullText.length());
         body.put("expireAt", formatExpireAt(stream.getExpireAt()));
-        return ResponseEntity.ok(body);
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
     private void handleChat(ActiveSession session, String threadId, String content) {
@@ -333,13 +353,30 @@ public class ChatSseController {
     private Map<String, Object> conflictBody(int userId) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("message", "上一条消息仍在处理中");
-        ChatStream running = chatStreamService.findRunningStream(userId);
-        if (running != null) {
-            body.put("streamId", running.getStreamId());
-            body.put("lastEventId", running.getLastEventId() == null ? 0L : running.getLastEventId());
-            body.put("status", running.getStatus());
+        try {
+            ChatStream running = chatStreamService.findRunningStream(userId);
+            if (running != null) {
+                body.put("streamId", running.getStreamId());
+                body.put("lastEventId", running.getLastEventId() == null ? 0L : running.getLastEventId());
+                body.put("status", running.getStatus());
+            }
+        } catch (Exception e) {
+            log.warn("[EasyAccounts SSE] conflictBody 附加流信息失败 userId={}: {}", userId, e.toString());
         }
         return body;
+    }
+
+    private Object writeJson(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+        return writeJson(response, status, Map.of("message", message));
+    }
+
+    private Object writeJson(HttpServletResponse response, HttpStatus status, Map<String, ?> body)
+            throws IOException {
+        response.setStatus(status.value());
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        objectMapper.writeValue(response.getWriter(), body);
+        return null;
     }
 
     private static long resolveAfterEventId(Long queryParam, String lastEventIdHeader) {
