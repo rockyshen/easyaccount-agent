@@ -40,7 +40,10 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `PUT /api/accounts/{id}` | 更新账户，body: `{ name?, card?, note?, exemptMoney? }` |
 | `DELETE /api/accounts/{id}` | 软删除账户 |
 | `GET /api/actions` | 收支类型列表（全局只读） |
-| `GET /api/types?actionId=` | 某收支类型下的分类树（只读） |
+| `GET /api/types?actionId=` | 某收支类型下的分类树 |
+| `POST /api/types` · `POST /api/types/create` | 创建分类（两路径同源），body: `{ tname, actionId, parent? }` |
+| `PUT /api/types/{id}` | 更新分类，body: `{ tname, actionId?, parent? }` |
+| `DELETE /api/types/{id}` | 软删/停用分类（一级会级联停用子分类） |
 | `GET /api/dashboard` | 概览：总资产/净资产/年度汇总/账户占比 |
 | `POST /api/chat` | SSE 流式对话（需 Bearer；详见 `docs/ios-swift-sse-handoff.md`） |
 | `GET /api/chat/streams/{streamId}` | SSE 断点续传（`?afterEventId=`；见 `docs/ios-swift-sse-resume-handoff.md`） |
@@ -48,7 +51,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `GET /api/chat/streams/{streamId}/status` | 流状态 JSON |
 
 业务 REST（accounts / actions / types / dashboard / chat）均需 `Authorization: Bearer {token}`；失败多为 `{ "message": "..." }`。  
-分类目前**仅查询**，无增删改接口。  
+分类为全局共享；删除为**软删**（`t_disable=true`），列表不再返回。  
 `WS /ws` **已下线**，请改用 `POST /api/chat`。  
 客户端断线**不会**取消生成；仅 cancel 接口会停止并释放 busy。
 

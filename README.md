@@ -24,7 +24,8 @@ mvn spring-boot:run
 | `GET /api/auth/me` | 校验会话（免登录） |
 | `POST /api/auth/logout` | 登出 |
 | `GET/POST/PUT/DELETE /api/accounts` | 账户管理（需 Bearer） |
-| `GET /api/actions` · `GET /api/types?actionId=` | 分类只读（需 Bearer） |
+| `GET /api/actions` | 收支类型列表（需 Bearer） |
+| `GET/POST/PUT/DELETE /api/types` | 分类 CRUD（需 Bearer；另兼容 `POST /api/types/create`） |
 | `GET /api/dashboard` | 概览分析（需 Bearer） |
 | `POST /api/chat` | SSE 流式对话（需 Bearer，`text/event-stream`） |
 | `GET /api/chat/streams/{streamId}` | SSE 断点续传（`afterEventId`） |
