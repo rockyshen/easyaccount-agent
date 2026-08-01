@@ -3,7 +3,7 @@
 > 面向：Swift 客户端 Agent / iOS 开发  
 > 后端仓库：`easyaccount-agent`  
 > 文档日期：2026-07-24  
-> 状态：**账户管理 / 分类管理（只读）/ 概览分析 REST 已上线**（需部署含本能力的构建）  
+> 状态：**账户管理 / 分类管理 CRUD / 概览分析 REST 已上线**（需部署含本能力的构建）  
 > 侧栏对应：账户管理 · 分类管理 · 概览分析  
 
 ---
@@ -244,10 +244,10 @@ UI 建议：
 
 ---
 
-## 4. 分类管理（只读）
+## 4. 分类管理
 
 侧栏「分类管理」。需 Bearer。  
-`action` / `type` 为**全局共享**数据；**当前无增删改接口**，一期做成只读浏览即可。
+`action` / `type` 为**全局共享**数据（不按用户隔离）。分类支持二级树（一级 + 子级）；删除为**软删/停用**。
 
 ### 4.1 收支类型
 
@@ -257,9 +257,9 @@ UI 建议：
 
 ```json
 [
-  { "id": 1, "hName": "收入", "exempt": false, "handle": 0 },
-  { "id": 2, "hName": "支出", "exempt": false, "handle": 1 },
-  { "id": 3, "hName": "转账", "exempt": false, "handle": 2 }
+  { "id": 1, "hname": "收入", "exempt": false, "handle": 0 },
+  { "id": 2, "hname": "支出", "exempt": false, "handle": 1 },
+  { "id": 3, "hname": "转账", "exempt": false, "handle": 2 }
 ]
 ```
 
@@ -269,12 +269,15 @@ UI 建议：
 | `1` | 支出 |
 | `2` | 转账/内部 |
 
-### 4.2 分类树
+> JSON 字段名为 `hname`（小写）；Swift 侧请用 `CodingKeys` 映射到 `hName`。
+
+### 4.2 分类树（列表）
 
 `GET /api/types?actionId={actionId}`
 
 - `actionId` **必填**，缺省 → `400` `{ "message": "actionId 不能为空" }`
 - 父节点 `parent == -1`；子节点在 `childrenTypes`
+- 响应字段名为 **`tname`**（小写，与现网一致）
 
 成功 `200`：
 
@@ -282,17 +285,62 @@ UI 建议：
 [
   {
     "id": 10,
-    "tName": "餐饮",
+    "tname": "餐饮",
     "parent": -1,
     "childrenTypes": [
-      { "id": 11, "tName": "午餐", "parent": 10, "childrenTypes": null },
-      { "id": 12, "tName": "咖啡", "parent": 10, "childrenTypes": null }
+      { "id": 11, "tname": "午餐", "parent": 10, "childrenTypes": null },
+      { "id": 12, "tname": "咖啡", "parent": 10, "childrenTypes": null }
     ]
   }
 ]
 ```
 
-### 4.3 Swift 模型
+### 4.3 创建分类
+
+推荐：`POST /api/types`  
+过渡（同源）：`POST /api/types/create`
+
+```json
+{ "tname": "餐饮", "actionId": 1, "parent": -1 }
+```
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| tname / tName | ✅ | 分类名，非空，≤ 50；请求同时接受两种写法 |
+| actionId | ✅ | 所属收支操作 ID |
+| parent | ❌ | 默认 `-1`（一级）；子分类传父节点 id；也接受 `null`/`0` |
+
+成功 `200`：新建节点（含 `childrenTypes: []`）。  
+失败：`400`（名称为空 / actionId 无效 / 父分类不存在 / 仅支持二级分类）。
+
+### 4.4 更新分类
+
+`PUT /api/types/{id}`
+
+```json
+{ "tname": "餐饮支出", "actionId": 1, "parent": -1 }
+```
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| tname / tName | ✅ | 新名称 |
+| actionId | ❌ | 若传则校验归属；一级改 actionId 会同步子分类 |
+| parent | ❌ | 调整层级；禁止挂到自己/子孙；有子分类的一级不可降为二级 |
+
+成功 `200`：更新后的节点。  
+失败：`404`（不存在/已停用）、`400`（校验失败）。
+
+### 4.5 删除分类
+
+`DELETE /api/types/{id}`
+
+- **软删**：`t_disable=true`，列表不再返回
+- 一级分类会**级联停用**其子分类
+
+成功 `200`：`{ "ok": true }`  
+失败：`404` `{ "message": "分类不存在或已停用" }`
+
+### 4.6 Swift 模型
 
 ```swift
 struct ActionDTO: Codable, Identifiable, Sendable {
@@ -300,6 +348,11 @@ struct ActionDTO: Codable, Identifiable, Sendable {
     let hName: String
     let exempt: Bool
     let handle: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, exempt, handle
+        case hName = "hname"
+    }
 }
 
 struct TypeNodeDTO: Codable, Identifiable, Sendable {
@@ -307,10 +360,27 @@ struct TypeNodeDTO: Codable, Identifiable, Sendable {
     let tName: String
     let parent: Int?
     let childrenTypes: [TypeNodeDTO]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, parent, childrenTypes
+        case tName = "tname"
+    }
+}
+
+struct CreateTypeRequest: Codable, Sendable {
+    let tname: String
+    let actionId: Int
+    let parent: Int?
+}
+
+struct UpdateTypeRequest: Codable, Sendable {
+    let tname: String
+    let actionId: Int?
+    let parent: Int?
 }
 ```
 
-页面流程建议：先拉 `/api/actions` → 用户点选某一 `action` → 再拉 `/api/types?actionId=` 展示树。
+页面流程建议：先拉 `/api/actions` → 用户点选某一 `action` → 再拉 `/api/types?actionId=` 展示树；新建走 `POST /api/types` 或 `/api/types/create`，编辑/删除分别走 `PUT` / `DELETE /api/types/{id}`。
 
 ---
 
