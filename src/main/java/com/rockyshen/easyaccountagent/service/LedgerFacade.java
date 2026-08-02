@@ -146,6 +146,45 @@ public class LedgerFacade {
         return sb.toString();
     }
 
+    public String createType(String name, int actionId, int parent) {
+        try {
+            Type type = typeService.createType(name, actionId, parent);
+            if (type.getParent() == null || type.getParent() == -1 || type.getParent() == 0) {
+                return String.format("一级分类创建成功：id=%d, 名称=%s, actionId=%d",
+                        type.getId(), type.getTName(), type.getActionId());
+            }
+            return String.format("二级分类创建成功：id=%d, 名称=%s, actionId=%d, parentId=%d",
+                    type.getId(), type.getTName(), type.getActionId(), type.getParent());
+        } catch (Exception e) {
+            return "创建分类失败：" + e.getMessage();
+        }
+    }
+
+    public String updateType(int typeId, String name, int actionId, int parent) {
+        try {
+            Integer actionIdArg = actionId > 0 ? actionId : null;
+            Integer parentArg = parent < 0 ? null : parent;
+            Type type = typeService.updateType(typeId, name, actionIdArg, parentArg);
+            if (type.getParent() == null || type.getParent() == -1 || type.getParent() == 0) {
+                return String.format("分类已更新：id=%d, 名称=%s, actionId=%d, 层级=一级",
+                        type.getId(), type.getTName(), type.getActionId());
+            }
+            return String.format("分类已更新：id=%d, 名称=%s, actionId=%d, parentId=%d",
+                    type.getId(), type.getTName(), type.getActionId(), type.getParent());
+        } catch (Exception e) {
+            return "更新分类失败：" + e.getMessage();
+        }
+    }
+
+    public String deleteType(int typeId) {
+        try {
+            typeService.deleteType(typeId);
+            return "分类 id=" + typeId + " 已停用（软删除）；若为一级分类则子分类一并停用。";
+        } catch (Exception e) {
+            return "删除分类失败：" + e.getMessage();
+        }
+    }
+
     public String listTypesByAction(int actionId) {
         List<TypeListResponseDto> types = typeService.queryTypeByActionId(actionId);
         if (types.isEmpty()) {

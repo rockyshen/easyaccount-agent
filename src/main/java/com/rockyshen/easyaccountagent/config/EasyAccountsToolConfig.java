@@ -139,6 +139,30 @@ public class EasyAccountsToolConfig {
     }
 
     @Bean
+    ToolCallback createTypeTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("createType", EasyAccountsToolFunctions.createType(facade))
+                .description("新增分类：parent=0 为一级分类；parent>0 挂到指定一级分类下（仅支持二级）")
+                .inputType(EasyAccountsToolFunctions.CreateTypeRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback updateTypeTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("updateType", EasyAccountsToolFunctions.updateType(facade))
+                .description("修改分类：actionId=0 不改收支类型；parent=-1 不改层级，parent=0 改为一级，parent>0 挂到该一级分类下")
+                .inputType(EasyAccountsToolFunctions.UpdateTypeRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback deleteTypeTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("deleteType", EasyAccountsToolFunctions.deleteType(facade))
+                .description("删除（停用）分类；一级分类会级联停用子分类；操作前应先 listTypesByAction 确认 ID")
+                .inputType(EasyAccountsToolFunctions.TypeIdRequest.class)
+                .build();
+    }
+
+    @Bean
     ToolCallback repayCreditCardTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("repayCreditCard", EasyAccountsToolFunctions.repayCreditCard(facade))
                 .description("信用卡还款：从普通/储蓄账户转入信用卡，恢复可用额度")

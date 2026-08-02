@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.NumberFormat;
+import java.time.LocalDate;
 import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +29,8 @@ public class HomeService {
     public HomeDto getHomeBean() {
         HomeDto homeDto = new HomeDto();
         setAccountsBean(homeDto);
+        LocalDate today = LocalDate.now();
+        setMonthlySummary(homeDto, today.getYear(), today.getMonthValue());
         setYearlySummary(homeDto, Year.now().getValue());
         return homeDto;
     }
@@ -91,6 +94,19 @@ public class HomeService {
         return value == null || value.isBlank() ? "0" : value;
     }
 
+    private void setMonthlySummary(HomeDto homeDto, int year, int month) {
+        FlowYear flowMonth = flowDao.getMonthlySummary(year, month, AuthContext.requireUserId());
+        if (flowMonth == null) {
+            homeDto.setCurOutCome("0.00");
+            homeDto.setCurIncome("0.00");
+            homeDto.setCurBalance("0.00");
+            return;
+        }
+        homeDto.setCurOutCome(scaleMoney(flowMonth.getTotalCosts()));
+        homeDto.setCurIncome(scaleMoney(flowMonth.getTotalEarns()));
+        homeDto.setCurBalance(scaleMoney(flowMonth.getTotalBalance()));
+    }
+
     private void setYearlySummary(HomeDto homeDto, int year) {
         FlowYear flowYear = flowDao.getYearlySummary(year, AuthContext.requireUserId());
         if (flowYear == null) {
@@ -99,8 +115,12 @@ public class HomeService {
             homeDto.setYearBalance("0.00");
             return;
         }
-        homeDto.setYearOutCome(new BigDecimal(nullToZero(flowYear.getTotalCosts())).setScale(2, RoundingMode.HALF_UP).toString());
-        homeDto.setYearIncome(new BigDecimal(nullToZero(flowYear.getTotalEarns())).setScale(2, RoundingMode.HALF_UP).toString());
-        homeDto.setYearBalance(new BigDecimal(nullToZero(flowYear.getTotalBalance())).setScale(2, RoundingMode.HALF_UP).toString());
+        homeDto.setYearOutCome(scaleMoney(flowYear.getTotalCosts()));
+        homeDto.setYearIncome(scaleMoney(flowYear.getTotalEarns()));
+        homeDto.setYearBalance(scaleMoney(flowYear.getTotalBalance()));
+    }
+
+    private static String scaleMoney(String value) {
+        return new BigDecimal(nullToZero(value)).setScale(2, RoundingMode.HALF_UP).toString();
     }
 }

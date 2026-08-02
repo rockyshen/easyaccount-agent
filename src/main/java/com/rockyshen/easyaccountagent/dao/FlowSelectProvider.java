@@ -96,4 +96,19 @@ public class FlowSelectProvider {
         log.info("method: getYearlySummary\n" + sql);
         return sql;
     }
+
+    public String getMonthlySummary(@Param("year") int year, @Param("month") int month, @Param("userId") int userId) {
+        String sql = new SQL() {{
+            SELECT("SUM(CASE WHEN a.handle = 0 THEN f.money ELSE 0 END) AS totalEarns",
+                    "SUM(CASE WHEN a.handle = 1 THEN f.money ELSE 0 END) AS totalCosts",
+                    "SUM(CASE WHEN a.handle = 0 THEN f.money ELSE 0 END) - SUM(CASE WHEN a.handle = 1 THEN f.money ELSE 0 END) AS totalBalance");
+            FROM("flow f");
+            JOIN("action a ON f.action_id = a.id");
+            WHERE("YEAR(f.f_date) = #{year}");
+            WHERE("MONTH(f.f_date) = #{month}");
+            WHERE("f.user_id = #{userId}");
+        }}.toString();
+        log.info("method: getMonthlySummary\n" + sql);
+        return sql;
+    }
 }
