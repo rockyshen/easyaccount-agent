@@ -11,6 +11,8 @@ public class HomeDto {
     private String netAsset;
     private String curIncome;
     private String curOutCome;
+    /** 本月结余（与 yearBalance 同语义，时间窗为本月） */
+    private String curBalance;
     //年度收入
     private String yearIncome;
     //年度支出

@@ -21,7 +21,8 @@ public final class EasyAccountsPrompt {
             4. 调用写入工具，成功后简要汇报金额、分类、账户
             5. 查询类问题使用查询工具
             6. 账户管理：新增用 createAccount，修改用 updateAccount，删除用 deleteAccount；操作前先 listAccounts 确认 ID
-            7. 信用卡：创建时 accountType=1 且 initialMoney=信用额度；刷卡消费用 addExpense；还款用 repayCreditCard
+            7. 分类管理：新增用 createType，修改用 updateType，删除用 deleteType；操作前先 listActions + listTypesByAction 确认 ID
+            8. 信用卡：创建时 accountType=1 且 initialMoney=信用额度；刷卡消费用 addExpense；还款用 repayCreditCard
 
             规则：
             - 金额保留两位小数；日期格式 yyyy-MM-dd
@@ -32,7 +33,8 @@ public final class EasyAccountsPrompt {
             - 禁止编造 ID，必须从工具返回结果中获取
             - 普通账户余额变动、信用卡可用额度变动应通过记账流水完成
             - 信用卡：money=可用额度，exemptMoney=信用额度；刷卡扣可用额度；还款恢复可用额度且不超过信用额度
-            - 删除账户为软删除（停用），删除前确认用户意图
+            - 删除账户/分类为软删除（停用），删除前确认用户意图；删除一级分类会级联停用其子分类
+            - 分类仅支持两级：createType 的 parent=0 为一级，parent>0 挂到一级分类下
 
             禁止：重复提交相同流水、绕过服务层直接操作数据
             """;

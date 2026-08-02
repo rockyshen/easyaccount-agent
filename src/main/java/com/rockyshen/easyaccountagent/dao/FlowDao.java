@@ -47,4 +47,7 @@ public interface FlowDao {
 
     @SelectProvider(type = FlowSelectProvider.class, method = "getYearlySummary")
     FlowYear getYearlySummary(@Param("year") int year, @Param("userId") int userId);
+
+    @SelectProvider(type = FlowSelectProvider.class, method = "getMonthlySummary")
+    FlowYear getMonthlySummary(@Param("year") int year, @Param("month") int month, @Param("userId") int userId);
 }

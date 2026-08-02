@@ -98,6 +98,22 @@ public final class EasyAccountsToolFunctions {
     public record AccountIdRequest(@ToolParam(description = "账户 ID") int accountId) {
     }
 
+    public record CreateTypeRequest(
+            @ToolParam(description = "分类名称") String name,
+            @ToolParam(description = "收支类型 actionId，须先 listActions 获取") int actionId,
+            @ToolParam(description = "父分类 ID；0 表示一级分类，大于 0 表示挂到该一级分类下") int parent) {
+    }
+
+    public record UpdateTypeRequest(
+            @ToolParam(description = "分类 ID，操作前应先 listTypesByAction 确认") int typeId,
+            @ToolParam(description = "新名称") String name,
+            @ToolParam(description = "新 actionId；0 表示不修改") int actionId,
+            @ToolParam(description = "新父分类 ID；-1 表示不修改；0 表示改为一级分类；大于 0 表示挂到该一级分类下") int parent) {
+    }
+
+    public record TypeIdRequest(@ToolParam(description = "分类 ID") int typeId) {
+    }
+
     public record RepayCreditRequest(
             @ToolParam(description = "还款金额") String money,
             @ToolParam(description = "日期 yyyy-MM-dd") String date,
@@ -187,6 +203,18 @@ public final class EasyAccountsToolFunctions {
 
     public static Function<AccountIdRequest, String> deleteAccount(LedgerFacade facade) {
         return req -> facade.deleteAccount(req.accountId());
+    }
+
+    public static Function<CreateTypeRequest, String> createType(LedgerFacade facade) {
+        return req -> facade.createType(req.name(), req.actionId(), req.parent());
+    }
+
+    public static Function<UpdateTypeRequest, String> updateType(LedgerFacade facade) {
+        return req -> facade.updateType(req.typeId(), req.name(), req.actionId(), req.parent());
+    }
+
+    public static Function<TypeIdRequest, String> deleteType(LedgerFacade facade) {
+        return req -> facade.deleteType(req.typeId());
     }
 
     public static Function<RepayCreditRequest, String> repayCreditCard(LedgerFacade facade) {
