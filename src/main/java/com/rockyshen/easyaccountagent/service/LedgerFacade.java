@@ -242,8 +242,10 @@ public class LedgerFacade {
             if (dto == null) {
                 return "未找到 id=" + flowId + " 的流水。";
             }
-            return String.format("流水详情：id=%d, 日期=%s, 金额=%s, 账户=%s, 分类=%s, 备注=%s",
-                    dto.getId(), dto.getFDate(), dto.getMoney(),
+            return String.format("流水详情：id=%d, 日期=%s, 创建时间=%s, 金额=%s, 账户=%s, 分类=%s, 备注=%s",
+                    dto.getId(), dto.getFDate(),
+                    dto.getFCreateDate() == null ? "" : dto.getFCreateDate(),
+                    dto.getMoney(),
                     dto.getAccount() != null ? dto.getAccount().getAName() : "",
                     dto.getType() != null ? dto.getType().getTName() : "",
                     dto.getNote() == null ? "" : dto.getNote());

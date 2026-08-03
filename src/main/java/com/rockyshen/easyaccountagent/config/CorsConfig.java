@@ -9,8 +9,7 @@ import org.springframework.web.filter.CorsFilter;
 import java.util.List;
 
 /**
- * 允许 my-agent-frontend 等跨域调用登录/注册 HTTP API。
- * WebSocket 另有 setAllowedOrigins("*")。
+ * 允许前端 / iOS 模拟器等跨域调用 HTTP / SSE API。
  */
 @Configuration
 public class CorsConfig {

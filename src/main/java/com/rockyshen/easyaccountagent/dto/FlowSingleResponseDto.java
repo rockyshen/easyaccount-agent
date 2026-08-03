@@ -9,6 +9,7 @@ public class FlowSingleResponseDto {
     private int id;
     private String money;
     private String fDate;
+    private String fCreateDate;
     private Action action;
     private Account account;
     private Account accountTo;

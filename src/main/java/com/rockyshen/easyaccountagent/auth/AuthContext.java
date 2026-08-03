@@ -3,7 +3,7 @@ package com.rockyshen.easyaccountagent.auth;
 /**
  * 当前登录用户上下文。
  * <p>
- * WS worker 上的 {@link ThreadLocal} 在 Agent 工具线程上不可见
+ * SSE worker 上的 {@link ThreadLocal} 在 Agent 工具线程上不可见
  * （ReactAgent 常通过 AsyncToolCallbackAdapter 在其它线程执行工具），
  * 因此工具回调须通过 {@link AuthPropagatingToolCallback}（且为 StateAware）
  * 从 RunnableConfig / threadId（{@code u-{userId}}）注入。

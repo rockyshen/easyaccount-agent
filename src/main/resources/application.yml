@@ -11,6 +11,10 @@ spring:
     name: easyaccount-agent
   config:
     import: optional:classpath:application-local.yml
+  mvc:
+    async:
+      # SSE 对话可能较长（模型 + 多轮 Tool）
+      request-timeout: ${SPRING_MVC_ASYNC_REQUEST_TIMEOUT:300000}
   datasource:
     url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/yd_jz?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
     username: ${DB_USER}
@@ -19,6 +23,35 @@ spring:
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
+
+# 文件日志见 logback-spring.xml；默认 /var/log/easyaccount-agent/easyaccount-agent.log
+# 本地开发可 export LOG_HOME=./logs
+logging:
+  level:
+    root: INFO
+    com.rockyshen.easyaccountagent: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        easyaccount.sse.chat: true
+        easyaccount.tool.calls: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 easyaccount:
   auth:

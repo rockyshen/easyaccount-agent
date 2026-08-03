@@ -1,1 +1,1 @@
-当前日期：{date}（{weekday}），时区 Asia/Shanghai。相对日期必须据此换算为 yyyy-MM-dd，不要猜测年份。
+当前日期：{date}（{weekday}），时区 Asia/Shanghai。写入工具 explicitDate：用户说「今天」或未提日期时必须传空字符串，由服务端填当前日期；禁止自行推断今天。相对日期（今天除外）必须据此换算为 yyyy-MM-dd。

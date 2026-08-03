@@ -23,8 +23,8 @@ else
   ENTRIES=$(unzip -l "$JAR" 2>/dev/null || true)
 fi
 
-echo "$ENTRIES" | grep -Fq 'com/rockyshen/easyaccountagent/controller/WebSocketHandler.class' || {
-  echo "ERROR: jar 缺少 WebSocketHandler" >&2
+echo "$ENTRIES" | grep -Fq 'com/rockyshen/easyaccountagent/controller/ChatSseController.class' || {
+  echo "ERROR: jar 缺少 ChatSseController" >&2
   exit 1
 }
 

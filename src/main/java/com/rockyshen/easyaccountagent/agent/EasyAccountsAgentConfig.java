@@ -5,6 +5,8 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.CreateOption;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.rockyshen.easyaccountagent.auth.AuthPropagatingToolCallback;
 import com.rockyshen.easyaccountagent.constant.EasyAccountsPrompt;
+import com.rockyshen.easyaccountagent.metrics.AgentMetrics;
+import com.rockyshen.easyaccountagent.metrics.MeteredToolCallback;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -21,12 +23,16 @@ public class EasyAccountsAgentConfig {
     ReactAgent easyAccountAgent(
             @Qualifier("qwenClientModel") ChatModel chatModel,
             @Qualifier("easyAccountToolCallbacks") List<ToolCallback> easyAccountToolCallbacks,
-            DataSource dataSource) {
+            DataSource dataSource,
+            AgentMetrics agentMetrics) {
+        ToolCallback[] tools = MeteredToolCallback.wrapAll(
+                agentMetrics,
+                AuthPropagatingToolCallback.wrapAll(
+                        easyAccountToolCallbacks.toArray(new ToolCallback[0])));
         return ReactAgent.builder()
                 .name("easyaccount_agent")
                 .model(chatModel)
-                .tools(AuthPropagatingToolCallback.wrapAll(
-                        easyAccountToolCallbacks.toArray(new ToolCallback[0])))
+                .tools(tools)
                 .systemPrompt(EasyAccountsPrompt.TEXT)
                 .interceptors(new CurrentDateModelInterceptor())
                 .saver(MysqlSaver.builder()
