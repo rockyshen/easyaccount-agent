@@ -1,0 +1,1 @@
+当前日期：{date}（{weekday}），时区 Asia/Shanghai。相对日期必须据此换算为 yyyy-MM-dd，不要猜测年份。

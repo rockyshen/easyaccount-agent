@@ -8,6 +8,7 @@ import com.rockyshen.easyaccountagent.auth.AuthenticatedUser;
 import com.rockyshen.easyaccountagent.auth.WebSocketAuthHandshakeInterceptor;
 import com.rockyshen.easyaccountagent.model.ws.ChatClientMsg;
 import com.rockyshen.easyaccountagent.model.ws.ChatServerMsg;
+import com.rockyshen.easyaccountagent.util.ChatPlainText;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -117,13 +118,15 @@ public class WebSocketHandler extends TextWebSocketHandler {
             easyAccountAgent.streamMessages(content, config)
                     .filter(AssistantMessage.class::isInstance)
                     .map(m -> ((AssistantMessage) m).getText())
+                    .map(ChatPlainText::sanitize)
                     .filter(text -> text != null && !text.isBlank())
                     .doOnNext(chunk -> {
                         full.append(chunk);
                         send(ws.conn, ChatServerMsg.builder().type("message_delta").content(chunk).build());
                     })
                     .blockLast();
-            send(ws.conn, ChatServerMsg.builder().type("message_end").content(full.toString()).build());
+            send(ws.conn, ChatServerMsg.builder().type("message_end")
+                    .content(ChatPlainText.sanitize(full.toString())).build());
         } catch (Exception e) {
             log.error("[EasyAccounts WS] 处理失败", e);
             send(ws.conn, ChatServerMsg.builder().type("error")
