@@ -19,6 +19,7 @@ public class FlowSelectProvider {
                 LEFT_OUTER_JOIN("account ac on flow.account_id = ac.id");
                 LEFT_OUTER_JOIN("account acc on flow.account_to_id = acc.id");
                 WHERE("flow.user_id = #{userId}");
+                WHERE("(flow.f_disable = 0 OR flow.f_disable IS NULL)");
                 if (handle >= 3) {
                     WHERE("a.handle < #{handle}", "flow.f_date like #{date}");
                 } else {
@@ -53,6 +54,7 @@ public class FlowSelectProvider {
         sql.append("LEFT OUTER JOIN account ac ON flow.account_id = ac.id\n");
         sql.append("LEFT OUTER JOIN account acc ON flow.account_to_id = acc.id\n");
         sql.append("WHERE flow.user_id = #{userId}\n");
+        sql.append("AND (flow.f_disable = 0 OR flow.f_disable IS NULL)\n");
         sql.append("AND a.handle ").append(handle == 3 ? "<" : "=").append("#{handle}").append("\n");
 
         if (account > 0) {
@@ -92,6 +94,7 @@ public class FlowSelectProvider {
             JOIN("action a ON f.action_id = a.id");
             WHERE("YEAR(f.f_date) = #{year}");
             WHERE("f.user_id = #{userId}");
+            WHERE("(f.f_disable = 0 OR f.f_disable IS NULL)");
         }}.toString();
         log.info("method: getYearlySummary\n" + sql);
         return sql;
@@ -107,6 +110,7 @@ public class FlowSelectProvider {
             WHERE("YEAR(f.f_date) = #{year}");
             WHERE("MONTH(f.f_date) = #{month}");
             WHERE("f.user_id = #{userId}");
+            WHERE("(f.f_disable = 0 OR f.f_disable IS NULL)");
         }}.toString();
         log.info("method: getMonthlySummary\n" + sql);
         return sql;

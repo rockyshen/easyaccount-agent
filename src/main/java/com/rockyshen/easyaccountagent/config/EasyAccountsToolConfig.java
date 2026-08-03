@@ -101,7 +101,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback deleteFlowTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("deleteFlow", EasyAccountsToolFunctions.deleteFlow(facade))
-                .description("删除流水")
+                .description("删除流水（逻辑删除，列表与汇总不再显示）")
                 .inputType(EasyAccountsToolFunctions.FlowIdRequest.class)
                 .build();
     }

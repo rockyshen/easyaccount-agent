@@ -16,5 +16,6 @@ public class Flow {
     private String note;
     private boolean collect;
     private String fCreateDate;
-
+    /** true / 1 = 已逻辑删除 */
+    private boolean fDisable;
 }

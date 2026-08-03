@@ -10,24 +10,26 @@ import java.util.Map;
 @Mapper
 public interface FlowDao {
 
-    @Insert("insert into flow (user_id,f_date,money,type_id,action_id,exempt,note,f_create_date,account_id,account_to_id,collect) "
+    @Insert("insert into flow (user_id,f_date,money,type_id,action_id,exempt,note,f_create_date,account_id,account_to_id,collect,f_disable) "
             + "values (#{flow.userId},#{flow.fDate},#{flow.money},#{flow.typeId},#{flow.actionId},#{flow.exempt},#{flow.note},"
-            + "#{flow.fCreateDate},#{flow.accountId},#{flow.accountToId},#{flow.collect})")
+            + "#{flow.fCreateDate},#{flow.accountId},#{flow.accountToId},#{flow.collect},0)")
     void addFlow(@Param("flow") Flow flow);
 
     @Select("select id, user_id AS userId, f_date AS fDate, money, type_id AS typeId, action_id AS actionId, "
             + "exempt, account_id AS accountId, account_to_id AS accountToId, note, collect, "
-            + "f_create_date AS fCreateDate from flow where id = #{id} and user_id = #{userId}")
+            + "f_create_date AS fCreateDate, f_disable AS fDisable from flow "
+            + "where id = #{id} and user_id = #{userId} and (f_disable = 0 OR f_disable IS NULL)")
     List<Flow> queryFlowById(@Param("id") int id, @Param("userId") int userId);
 
     @Update("update flow set f_date=#{flow.fDate}, money=#{flow.money}, type_id=#{flow.typeId}, "
             + "action_id=#{flow.actionId}, exempt=#{flow.exempt}, note=#{flow.note}, "
             + "f_create_date=#{flow.fCreateDate}, account_id=#{flow.accountId}, "
             + "account_to_id=#{flow.accountToId}, collect=#{flow.collect} "
-            + "where id=#{flow.id} and user_id=#{flow.userId}")
+            + "where id=#{flow.id} and user_id=#{flow.userId} and (f_disable = 0 OR f_disable IS NULL)")
     void updateFlow(@Param("flow") Flow flow);
 
-    @Update("update flow set collect=#{collect} where id=#{id} and user_id=#{userId}")
+    @Update("update flow set collect=#{collect} where id=#{id} and user_id=#{userId} "
+            + "and (f_disable = 0 OR f_disable IS NULL)")
     void collectFlowById(@Param("id") int id, @Param("userId") int userId, @Param("collect") int collect);
 
     @SelectProvider(type = FlowSelectProvider.class, method = "getFlowByMain")
@@ -42,8 +44,10 @@ public interface FlowDao {
                                               @Param("note") String note,
                                               @Param("userId") int userId);
 
-    @Delete("delete from flow where id = #{id} and user_id = #{userId}")
-    void deleteFlowById(@Param("id") int id, @Param("userId") int userId);
+    /** 逻辑删除：f_disable=1，不物理删行 */
+    @Update("update flow set f_disable = 1 where id = #{id} and user_id = #{userId} "
+            + "and (f_disable = 0 OR f_disable IS NULL)")
+    int deleteFlowById(@Param("id") int id, @Param("userId") int userId);
 
     @SelectProvider(type = FlowSelectProvider.class, method = "getYearlySummary")
     FlowYear getYearlySummary(@Param("year") int year, @Param("userId") int userId);
