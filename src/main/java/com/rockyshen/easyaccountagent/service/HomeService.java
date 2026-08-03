@@ -14,13 +14,15 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.NumberFormat;
 import java.time.LocalDate;
-import java.time.Year;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class HomeService {
+
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final FlowDao flowDao;
     private final AccountDao accountDao;
@@ -29,9 +31,9 @@ public class HomeService {
     public HomeDto getHomeBean() {
         HomeDto homeDto = new HomeDto();
         setAccountsBean(homeDto);
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(APP_ZONE);
         setMonthlySummary(homeDto, today.getYear(), today.getMonthValue());
-        setYearlySummary(homeDto, Year.now().getValue());
+        setYearlySummary(homeDto, today.getYear());
         return homeDto;
     }
 

@@ -4,19 +4,30 @@ import com.rockyshen.easyaccountagent.constant.ContentValues;
 import com.rockyshen.easyaccountagent.dto.FlowAddRequestDto;
 import com.rockyshen.easyaccountagent.dto.ScreenFlowRequestDto;
 import com.rockyshen.easyaccountagent.service.LedgerFacade;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.ToolParam;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class EasyAccountsToolFunctions {
 
+    private static final Logger log = LoggerFactory.getLogger(EasyAccountsToolFunctions.class);
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final ConcurrentHashMap<String, Long> RECENT = new ConcurrentHashMap<>();
+    private static final String EXPLICIT_DATE_DESC =
+            "仅当用户明确说出具体日期或相对日期（今天除外）时填 yyyy-MM-dd；"
+                    + "用户说「今天」或完全没提日期时，必须传空字符串，由服务端填当前日期。"
+                    + "禁止自行推断今天是哪一天。";
 
     private EasyAccountsToolFunctions() {
     }
@@ -48,7 +59,7 @@ public final class EasyAccountsToolFunctions {
 
     public record WriteFlowRequest(
             @ToolParam(description = "金额") String money,
-            @ToolParam(description = "日期 yyyy-MM-dd") String date,
+            @ToolParam(description = EXPLICIT_DATE_DESC) String explicitDate,
             @ToolParam(description = "账户 ID") int accountId,
             @ToolParam(description = "分类 typeId") int typeId,
             @ToolParam(description = "备注") String note) {
@@ -56,7 +67,7 @@ public final class EasyAccountsToolFunctions {
 
     public record TransferRequest(
             @ToolParam(description = "金额") String money,
-            @ToolParam(description = "日期") String date,
+            @ToolParam(description = EXPLICIT_DATE_DESC) String explicitDate,
             @ToolParam(description = "源账户 ID") int accountId,
             @ToolParam(description = "目标账户 ID") int accountToId,
             @ToolParam(description = "分类 typeId") int typeId,
@@ -66,7 +77,8 @@ public final class EasyAccountsToolFunctions {
     public record UpdateFlowRequest(
             @ToolParam(description = "流水 ID") int flowId,
             @ToolParam(description = "金额") String money,
-            @ToolParam(description = "日期") String date,
+            @ToolParam(description = "修改流水时：用户未改日期则填原流水日期；用户明确改日期时填新 yyyy-MM-dd；"
+                    + "禁止自行推断今天。仅当用户说「改成今天」时传空字符串。") String explicitDate,
             @ToolParam(description = "actionId") int actionId,
             @ToolParam(description = "账户 ID") int accountId,
             @ToolParam(description = "目标账户，非转账填0") int accountToId,
@@ -116,7 +128,7 @@ public final class EasyAccountsToolFunctions {
 
     public record RepayCreditRequest(
             @ToolParam(description = "还款金额") String money,
-            @ToolParam(description = "日期 yyyy-MM-dd") String date,
+            @ToolParam(description = EXPLICIT_DATE_DESC) String explicitDate,
             @ToolParam(description = "付款账户 ID（普通/储蓄账户）") int fromAccountId,
             @ToolParam(description = "信用卡账户 ID") int creditAccountId,
             @ToolParam(description = "分类 typeId") int typeId,
@@ -170,19 +182,20 @@ public final class EasyAccountsToolFunctions {
     }
 
     public static Function<TransferRequest, String> transferMoney(LedgerFacade facade) {
-        return req -> {
+        return req -> withDateValidation(() -> {
             int actionId = facade.findActionIdByHandle(ContentValues.ACTION_INNER);
             if (actionId < 0) {
                 return "未找到转账类型 action。";
             }
-            return facade.addFlow(buildRequest(req.money(), req.date(), req.accountId(), req.typeId(),
+            return facade.addFlow(buildRequest(req.money(), req.explicitDate(), req.accountId(), req.typeId(),
                     actionId, req.accountToId(), req.note(), false));
-        };
+        });
     }
 
     public static Function<UpdateFlowRequest, String> updateFlow(LedgerFacade facade) {
-        return req -> facade.updateFlow(req.flowId(), buildRequest(req.money(), req.date(), req.accountId(),
-                req.typeId(), req.actionId(), req.accountToId(), req.note(), false));
+        return req -> withDateValidation(() -> facade.updateFlow(req.flowId(),
+                buildRequest(req.money(), req.explicitDate(), req.accountId(),
+                        req.typeId(), req.actionId(), req.accountToId(), req.note(), false)));
     }
 
     public static Function<FlowIdRequest, String> deleteFlow(LedgerFacade facade) {
@@ -218,38 +231,42 @@ public final class EasyAccountsToolFunctions {
     }
 
     public static Function<RepayCreditRequest, String> repayCreditCard(LedgerFacade facade) {
-        return req -> {
-            String fp = "repay:" + req.money() + ":" + req.date() + ":" + req.fromAccountId() + ":" + req.creditAccountId();
+        return req -> withDateValidation(() -> {
+            String fp = "repay:" + req.money() + ":" + req.explicitDate() + ":"
+                    + req.fromAccountId() + ":" + req.creditAccountId();
             String dup = checkDuplicate(fp);
             if (dup != null) {
                 return dup;
             }
-            return facade.repayCreditCard(formatMoney(req.money()), resolveDate(req.date()),
+            return facade.repayCreditCard(formatMoney(req.money()), resolveDate(req.explicitDate()),
                     req.fromAccountId(), req.creditAccountId(), req.typeId(), truncateNote(req.note()));
-        };
+        });
     }
 
     private static String writeByHandle(LedgerFacade facade, WriteFlowRequest req, int handle, int accountToId) {
-        int actionId = facade.findActionIdByHandle(handle);
-        if (actionId < 0) {
-            return "未找到 handle=" + handle + " 的 action。";
-        }
-        if (handle == ContentValues.ACTION_SUB) {
-            String fp = "expense:" + req.money() + ":" + req.date() + ":" + req.accountId() + ":" + req.typeId();
-            String dup = checkDuplicate(fp);
-            if (dup != null) {
-                return dup;
+        return withDateValidation(() -> {
+            int actionId = facade.findActionIdByHandle(handle);
+            if (actionId < 0) {
+                return "未找到 handle=" + handle + " 的 action。";
             }
-        }
-        return facade.addFlow(buildRequest(req.money(), req.date(), req.accountId(), req.typeId(),
-                actionId, accountToId, req.note(), false));
+            if (handle == ContentValues.ACTION_SUB) {
+                String fp = "expense:" + req.money() + ":" + req.explicitDate() + ":"
+                        + req.accountId() + ":" + req.typeId();
+                String dup = checkDuplicate(fp);
+                if (dup != null) {
+                    return dup;
+                }
+            }
+            return facade.addFlow(buildRequest(req.money(), req.explicitDate(), req.accountId(), req.typeId(),
+                    actionId, accountToId, req.note(), false));
+        });
     }
 
-    private static FlowAddRequestDto buildRequest(String money, String date, int accountId, int typeId,
+    private static FlowAddRequestDto buildRequest(String money, String explicitDate, int accountId, int typeId,
                                                    int actionId, int accountToId, String note, boolean collect) {
         FlowAddRequestDto dto = new FlowAddRequestDto();
         dto.setMoney(formatMoney(money));
-        dto.setfDate(resolveDate(date));
+        dto.setfDate(resolveDate(explicitDate));
         dto.setAccountId(accountId);
         dto.setTypeId(typeId);
         dto.setActionId(actionId);
@@ -263,11 +280,41 @@ public final class EasyAccountsToolFunctions {
         return new BigDecimal(money).setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 
+    /**
+     * 空/空白 → 服务端当天（Asia/Shanghai）；非空 → 校验格式与不得晚于今天。
+     */
     private static String resolveDate(String date) {
         if (date == null || date.isBlank()) {
-            return LocalDate.now().format(DATE_FMT);
+            return LocalDate.now(APP_ZONE).format(DATE_FMT);
         }
-        return date.trim();
+        String trimmed = date.trim();
+        String today = LocalDate.now(APP_ZONE).format(DATE_FMT);
+        if (!trimmed.equals(today)) {
+            log.warn("model_explicit_date_not_today explicitDate={} serverToday={}", trimmed, today);
+        }
+        return validateDate(trimmed);
+    }
+
+    private static String validateDate(String date) {
+        LocalDate parsed;
+        try {
+            parsed = LocalDate.parse(date, DATE_FMT);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("日期格式必须为 yyyy-MM-dd，收到：" + date);
+        }
+        LocalDate today = LocalDate.now(APP_ZONE);
+        if (parsed.isAfter(today)) {
+            throw new IllegalArgumentException("不能记录未来日期：" + date + "，当前日期 " + today);
+        }
+        return date;
+    }
+
+    private static String withDateValidation(Supplier<String> action) {
+        try {
+            return action.get();
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
     }
 
     private static String truncateNote(String note) {

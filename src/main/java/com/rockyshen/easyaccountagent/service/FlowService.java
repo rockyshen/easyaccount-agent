@@ -20,14 +20,21 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 @Service
 @Slf4j
 public class FlowService {
+
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter CREATE_DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired
     ActionService actionService;
@@ -46,8 +53,7 @@ public class FlowService {
     public void doAddFlow(FlowAddRequestDto flowAddRequestDto) throws Exception {
         int userId = AuthContext.requireUserId();
         Flow flow = setNewFlow(flowAddRequestDto);
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
-        String createDate = sdf.format(new Date());
+        String createDate = LocalDateTime.now(APP_ZONE).format(CREATE_DATE_FMT);
         flow.setFCreateDate(createDate);
         BeanUtils.copyProperties(flowAddRequestDto, flow);
         flow.setUserId(userId);
@@ -125,10 +131,12 @@ public class FlowService {
                 break;
         }
         accountService.updateOriginAccount(lastAccount);
+        String originalCreateDate = lastFlow.getFCreateDate();
         Flow flow = setNewFlow(flowAddRequestDto);
         flow.setId(id);
         BeanUtils.copyProperties(flowAddRequestDto, flow);
         flow.setUserId(userId);
+        flow.setFCreateDate(originalCreateDate);
         flowDao.updateFlow(flow);
     }
 
@@ -260,11 +268,13 @@ public class FlowService {
         String monthStr = date.substring(0, 7) + "%";
         FlowListDto flowListDto = new FlowListDto();
         SimpleDateFormat sdf1 = new SimpleDateFormat("yyyyMMdd_HHmm");
+        sdf1.setTimeZone(TimeZone.getTimeZone(APP_ZONE));
         String time = sdf1.format(new Date());
         log.info("time:  " + time + "   date: " + monthStr + "  handle: " + handle);
         List<Map<String, Object>> maps = flowDao.getFlowByMain(handle, order, monthStr, AuthContext.requireUserId());
         List<FlowListDto.FlowListSingleDto> flows = new ArrayList<>();
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        sdf.setTimeZone(TimeZone.getTimeZone(APP_ZONE));
         BigDecimal moneyIn = new BigDecimal("0");
         BigDecimal moneyOut = new BigDecimal("0");
         for (Map<String, Object> map : maps) {
