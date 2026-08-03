@@ -117,7 +117,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
             easyAccountAgent.streamMessages(content, config)
                     .filter(AssistantMessage.class::isInstance)
                     .map(m -> ((AssistantMessage) m).getText())
-                    .filter(text -> text != null && !text.isEmpty())
+                    .filter(text -> text != null && !text.isBlank())
                     .doOnNext(chunk -> {
                         full.append(chunk);
                         send(ws.conn, ChatServerMsg.builder().type("message_delta").content(chunk).build());
