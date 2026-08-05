@@ -11,6 +11,10 @@ spring:
     name: easyaccount-agent
   config:
     import: optional:classpath:application-local.yml
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:8MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:9MB}
   mvc:
     async:
       # SSE 对话可能较长（模型 + 多轮 Tool）
@@ -60,4 +64,9 @@ easyaccount:
     sliding-renew-days: ${EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS:7}
   bill-parse:
     vl-model: ${EASYACCOUNT_BILL_PARSE_VL_MODEL:qwen-vl-plus}
-    max-bytes: ${EASYACCOUNT_BILL_PARSE_MAX_BYTES:10485760}
+    max-bytes: ${EASYACCOUNT_BILL_PARSE_MAX_BYTES:8388608}
+  attachments:
+    max-bytes: ${EASYACCOUNT_ATTACHMENTS_MAX_BYTES:8388608}
+    max-count: ${EASYACCOUNT_ATTACHMENTS_MAX_COUNT:9}
+    ttl-hours: ${EASYACCOUNT_ATTACHMENTS_TTL_HOURS:24}
+    storage-dir: ${EASYACCOUNT_ATTACHMENTS_DIR:./data/chat-attachments}

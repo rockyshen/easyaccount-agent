@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * @date 2026/6/26 10:25
  */
 @Configuration
-@EnableConfigurationProperties(BillParseProperties.class)
+@EnableConfigurationProperties({BillParseProperties.class, ChatAttachmentProperties.class})
 public class LLMConfig {
     @Value("${spring.ai.dashscope.api-key}")
     private String apiKey;
