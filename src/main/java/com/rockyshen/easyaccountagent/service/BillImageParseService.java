@@ -44,7 +44,8 @@ import java.util.regex.Pattern;
 public class BillImageParseService {
 
     private static final Set<String> ALLOWED_MIME = Set.of(
-            "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif");
+            "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif",
+            "image/heic", "image/heif");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final Pattern JSON_FENCE = Pattern.compile("(?s)```(?:json)?\\s*(\\{.*?})\\s*```");
     private static final Pattern FIRST_OBJECT = Pattern.compile("(?s)\\{.*}");
@@ -92,7 +93,7 @@ public class BillImageParseService {
         }
         String mime = normalizeMime(contentType);
         if (!ALLOWED_MIME.contains(mime)) {
-            throw new IllegalArgumentException("仅支持图片类型 jpeg/png/webp/gif，收到：" + contentType);
+            throw new IllegalArgumentException("仅支持图片类型 jpeg/png/webp/gif/heic，收到：" + contentType);
         }
     }
 
@@ -148,6 +149,7 @@ public class BillImageParseService {
             case "image/png" -> ".png";
             case "image/webp" -> ".webp";
             case "image/gif" -> ".gif";
+            case "image/heic", "image/heif" -> ".heic";
             default -> ".jpg";
         };
     }
