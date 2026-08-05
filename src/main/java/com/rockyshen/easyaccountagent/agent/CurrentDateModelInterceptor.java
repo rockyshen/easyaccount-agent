@@ -19,11 +19,10 @@ public class CurrentDateModelInterceptor extends ModelInterceptor {
 
     @Override
     public ModelResponse interceptModel(ModelRequest request, ModelCallHandler handler) {
-        String dateContext = EasyAccountsPrompt.currentDateContext();
         SystemMessage systemMessage = request.getSystemMessage();
-        SystemMessage enhanced = systemMessage == null
-                ? new SystemMessage(dateContext)
-                : new SystemMessage(systemMessage.getText() + "\n\n" + dateContext);
+        String base = systemMessage == null ? null : systemMessage.getText();
+        // 先剥离旧「当前日期」再注入，避免同一次对话里叠出两个今天
+        SystemMessage enhanced = new SystemMessage(EasyAccountsPrompt.mergeSystemWithDateContext(base));
         return handler.call(ModelRequest.builder(request).systemMessage(enhanced).build());
     }
 }
