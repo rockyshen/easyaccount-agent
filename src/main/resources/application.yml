@@ -58,3 +58,6 @@ easyaccount:
     enabled: ${EASYACCOUNT_AUTH_ENABLED:true}
     token-ttl-days: ${EASYACCOUNT_AUTH_TOKEN_TTL_DAYS:30}
     sliding-renew-days: ${EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS:7}
+  bill-parse:
+    vl-model: ${EASYACCOUNT_BILL_PARSE_VL_MODEL:qwen-vl-plus}
+    max-bytes: ${EASYACCOUNT_BILL_PARSE_MAX_BYTES:10485760}
