@@ -7,6 +7,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * @date 2026/6/26 10:25
  */
 @Configuration
+@EnableConfigurationProperties({BillParseProperties.class, ChatAttachmentProperties.class})
 public class LLMConfig {
     @Value("${spring.ai.dashscope.api-key}")
     private String apiKey;
@@ -26,6 +28,18 @@ public class LLMConfig {
                 .defaultOptions(DashScopeChatOptions.builder().withModel("qwen-plus").build())
                 .build();
         return chatModel;
+    }
+
+    /** 账单图片识别用视觉模型（与对话 Agent 的 qwen-plus 分离）。 */
+    @Bean(name = "qwenVlChatModel")
+    public ChatModel qwenVl(BillParseProperties billParseProperties) {
+        return DashScopeChatModel.builder()
+                .dashScopeApi(DashScopeApi.builder().apiKey(apiKey).build())
+                .defaultOptions(DashScopeChatOptions.builder()
+                        .withModel(billParseProperties.getVlModel())
+                        .withMultiModel(true)
+                        .build())
+                .build();
     }
 
     @Bean(name = "qwenChatClient")

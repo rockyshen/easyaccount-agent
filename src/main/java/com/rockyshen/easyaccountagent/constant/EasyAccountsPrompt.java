@@ -9,6 +9,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * 系统提示词从 classpath 加载，便于单独改文案：
@@ -21,6 +22,9 @@ public final class EasyAccountsPrompt {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final String SYSTEM_RESOURCE = "/prompts/easyaccounts-system.txt";
     private static final String DATE_CONTEXT_RESOURCE = "/prompts/easyaccounts-date-context.txt";
+    /** 匹配已注入的「当前日期：…」整段，避免 ReAct 多步或 checkpoint 复用时叠出多个日期。 */
+    private static final Pattern DATE_CONTEXT_BLOCK =
+            Pattern.compile("(?:\\n\\n)?当前日期：[^\\n]*");
 
     public static final String TEXT = loadResource(SYSTEM_RESOURCE);
 
@@ -33,6 +37,23 @@ public final class EasyAccountsPrompt {
         return DATE_CONTEXT_TEMPLATE
                 .replace("{date}", now.toLocalDate().format(DATE_FMT))
                 .replace("{weekday}", weekday);
+    }
+
+    /** 去掉 system 文本里已有的当前日期段，再追加本次新鲜注入。 */
+    public static String mergeSystemWithDateContext(String systemText) {
+        String base = stripDateContext(systemText);
+        String dateContext = currentDateContext();
+        if (base.isBlank()) {
+            return dateContext;
+        }
+        return base + "\n\n" + dateContext;
+    }
+
+    static String stripDateContext(String systemText) {
+        if (systemText == null || systemText.isBlank()) {
+            return "";
+        }
+        return DATE_CONTEXT_BLOCK.matcher(systemText).replaceAll("").trim();
     }
 
     private static String loadResource(String path) {

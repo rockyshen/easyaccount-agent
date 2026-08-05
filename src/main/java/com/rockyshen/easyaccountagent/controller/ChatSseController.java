@@ -8,6 +8,8 @@ import com.rockyshen.easyaccountagent.dto.ChatRequestDto;
 import com.rockyshen.easyaccountagent.entity.ChatStream;
 import com.rockyshen.easyaccountagent.metrics.AgentMetrics;
 import com.rockyshen.easyaccountagent.model.chat.ChatServerEvent;
+import com.rockyshen.easyaccountagent.service.AttachmentException;
+import com.rockyshen.easyaccountagent.service.ChatAttachmentService;
 import com.rockyshen.easyaccountagent.service.ChatStreamService;
 import com.rockyshen.easyaccountagent.service.ChatStreamService.ActiveSession;
 import com.rockyshen.easyaccountagent.util.ChatPlainText;
@@ -34,8 +36,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -60,6 +64,7 @@ public class ChatSseController {
     private final ReactAgent easyAccountAgent;
     private final AgentMetrics agentMetrics;
     private final ChatStreamService chatStreamService;
+    private final ChatAttachmentService chatAttachmentService;
     private final ObjectMapper objectMapper;
     private final ExecutorService asyncExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "easyaccounts-sse-worker");
@@ -70,10 +75,12 @@ public class ChatSseController {
     public ChatSseController(@Qualifier("easyAccountAgent") ReactAgent easyAccountAgent,
                              AgentMetrics agentMetrics,
                              ChatStreamService chatStreamService,
+                             ChatAttachmentService chatAttachmentService,
                              ObjectMapper objectMapper) {
         this.easyAccountAgent = easyAccountAgent;
         this.agentMetrics = agentMetrics;
         this.chatStreamService = chatStreamService;
+        this.chatAttachmentService = chatAttachmentService;
         this.objectMapper = objectMapper;
     }
 
@@ -84,11 +91,18 @@ public class ChatSseController {
         if (userId == null) {
             return writeJson(rawResponse, HttpStatus.UNAUTHORIZED, "未登录或会话已失效");
         }
-        if (body == null || body.getContent() == null || body.getContent().isBlank()) {
+
+        String content = body != null && body.getContent() != null ? body.getContent().trim() : "";
+        List<String> attachmentIds = normalizeAttachmentIds(body);
+        if (content.isEmpty() && attachmentIds.isEmpty()) {
             return writeJson(rawResponse, HttpStatus.BAD_REQUEST, "消息不能为空");
         }
+        try {
+            chatAttachmentService.assertUsableForChat(userId, attachmentIds);
+        } catch (AttachmentException e) {
+            return writeJson(rawResponse, e.getStatus(), e.getMessage());
+        }
 
-        String content = body.getContent().trim();
         String threadId = "u-" + userId;
         ActiveSession session;
         try {
@@ -118,7 +132,7 @@ public class ChatSseController {
             chatStreamService.detachSubscriber(session, emitter);
         });
 
-        asyncExecutor.submit(() -> handleChat(session, threadId, content));
+        asyncExecutor.submit(() -> handleChat(session, threadId, content, attachmentIds));
         return emitter;
     }
 
@@ -265,7 +279,8 @@ public class ChatSseController {
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
-    private void handleChat(ActiveSession session, String threadId, String content) {
+    private void handleChat(ActiveSession session, String threadId, String content,
+                            List<String> attachmentIds) {
         AuthContext.setUserId(session.userId);
         Timer.Sample sample = agentMetrics.startChat();
         String outcome = "success";
@@ -279,6 +294,23 @@ public class ChatSseController {
                 return;
             }
 
+            String agentInput;
+            try {
+                agentInput = chatAttachmentService.buildAgentInput(
+                        session.userId, content, attachmentIds);
+            } catch (AttachmentException e) {
+                chatStreamService.fail(session, e.getMessage());
+                outcome = "error";
+                return;
+            } catch (Exception e) {
+                log.error("[EasyAccounts SSE] 附件解析失败 userId={} streamId={}",
+                        session.userId, session.streamId, e);
+                chatStreamService.fail(session,
+                        e.getMessage() != null ? e.getMessage() : "附件解析失败");
+                outcome = "error";
+                return;
+            }
+
             RunnableConfig config = RunnableConfig.builder()
                     .threadId(threadId)
                     .addMetadata(AuthContext.METADATA_USER_ID, session.userId)
@@ -287,7 +319,7 @@ public class ChatSseController {
             CountDownLatch latch = new CountDownLatch(1);
             AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
-            Disposable disposable = easyAccountAgent.streamMessages(content, config)
+            Disposable disposable = easyAccountAgent.streamMessages(agentInput, config)
                     .filter(AssistantMessage.class::isInstance)
                     .map(m -> ((AssistantMessage) m).getText())
                     .map(ChatPlainText::sanitize)
@@ -350,6 +382,19 @@ public class ChatSseController {
             agentMetrics.stopChat(sample, outcome);
             AuthContext.clear();
         }
+    }
+
+    private static List<String> normalizeAttachmentIds(ChatRequestDto body) {
+        if (body == null || body.getAttachmentIds() == null || body.getAttachmentIds().isEmpty()) {
+            return List.of();
+        }
+        List<String> ids = new ArrayList<>();
+        for (String id : body.getAttachmentIds()) {
+            if (id != null && !id.isBlank()) {
+                ids.add(id.trim());
+            }
+        }
+        return ids;
     }
 
     private Map<String, Object> conflictBody(int userId) {
