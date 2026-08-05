@@ -10,15 +10,29 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 
+import java.util.Set;
+
 /**
  * 包装 ToolCallback：在工具线程上从 RunnableConfig / threadId 恢复 AuthContext。
  * <p>
  * 必须实现 {@link StateAwareToolCallback}：AgentToolNode 仅在回调为
  * StateAware / FunctionToolCallback / MethodToolCallback 时才会向 ToolContext
  * 注入 {@code _AGENT_CONFIG_}。普通包装类会导致配置无法注入，传播失效。
+ * <p>
+ * 另：附件识别「待确认」当轮拦截写入类工具，避免未确认就落库。
  */
 @Slf4j
 public final class AuthPropagatingToolCallback implements StateAwareToolCallback {
+
+    private static final Set<String> WRITE_TOOLS = Set.of(
+            "addExpense", "addIncome", "transferMoney", "updateFlow", "deleteFlow",
+            "repayCreditCard", "toggleFavorite",
+            "createAccount", "updateAccount", "deleteAccount",
+            "createType", "updateType", "deleteType");
+
+    private static final String CONFIRM_BLOCK_MESSAGE =
+            "本轮为附件识别确认阶段，禁止写入。请先向用户展示待确认清单并等待确认；"
+                    + "用户明确确认后，在下一轮再调用写入工具。";
 
     private final ToolCallback delegate;
 
@@ -58,31 +72,41 @@ public final class AuthPropagatingToolCallback implements StateAwareToolCallback
 
     @Override
     public String call(String toolInput, ToolContext toolContext) {
-        Integer previous = AuthContext.getUserIdOrNull();
-        boolean boundHere = false;
+        Integer previousUser = AuthContext.getUserIdOrNull();
+        Boolean previousConfirm = AuthContext.getAttachmentConfirmOnlyOrNull();
         try {
             if (AuthContext.getUserIdOrNull() == null) {
                 Integer resolved = resolveUserId(toolContext);
                 if (resolved != null) {
                     AuthContext.setUserId(resolved);
-                    boundHere = true;
                 } else {
                     log.warn("[AuthPropagating] 无法从 ToolContext 解析 userId，tool={}",
                             getToolDefinition() != null ? getToolDefinition().name() : "?");
                 }
             }
+
+            Boolean confirmOnly = resolveAttachmentConfirmOnly(toolContext);
+            if (confirmOnly != null) {
+                AuthContext.setAttachmentConfirmOnly(confirmOnly);
+            }
+
+            String toolName = getToolDefinition() != null ? getToolDefinition().name() : "";
+            if (AuthContext.isAttachmentConfirmOnly() && WRITE_TOOLS.contains(toolName)) {
+                log.info("[AuthPropagating] 拦截确认阶段写入 tool={}", toolName);
+                return CONFIRM_BLOCK_MESSAGE;
+            }
+
             if (toolContext != null) {
                 return delegate.call(toolInput, toolContext);
             }
             return delegate.call(toolInput);
         } finally {
-            if (boundHere) {
-                if (previous == null) {
-                    AuthContext.clear();
-                } else {
-                    AuthContext.setUserId(previous);
-                }
+            if (previousUser == null) {
+                AuthContext.clear();
+            } else {
+                AuthContext.setUserId(previousUser);
             }
+            AuthContext.setAttachmentConfirmOnly(previousConfirm);
         }
     }
 
@@ -93,6 +117,16 @@ public final class AuthPropagatingToolCallback implements StateAwareToolCallback
         return ToolContextHelper.getConfig(toolContext)
                 .or(() -> readConfigDirect(toolContext))
                 .map(AuthPropagatingToolCallback::userIdFromConfig)
+                .orElse(null);
+    }
+
+    private static Boolean resolveAttachmentConfirmOnly(ToolContext toolContext) {
+        if (toolContext == null) {
+            return null;
+        }
+        return ToolContextHelper.getConfig(toolContext)
+                .or(() -> readConfigDirect(toolContext))
+                .map(AuthPropagatingToolCallback::confirmOnlyFromConfig)
                 .orElse(null);
     }
 
@@ -127,5 +161,16 @@ public final class AuthPropagatingToolCallback implements StateAwareToolCallback
         return config.threadId()
                 .map(AuthContext::parseUserIdFromThreadId)
                 .orElse(null);
+    }
+
+    private static Boolean confirmOnlyFromConfig(RunnableConfig config) {
+        Object meta = config.metadata(AuthContext.METADATA_ATTACHMENT_CONFIRM_ONLY).orElse(null);
+        if (meta instanceof Boolean b) {
+            return b;
+        }
+        if (meta instanceof String s) {
+            return Boolean.parseBoolean(s.trim());
+        }
+        return null;
     }
 }
