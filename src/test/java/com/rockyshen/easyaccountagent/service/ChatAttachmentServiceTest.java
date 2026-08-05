@@ -139,9 +139,12 @@ class ChatAttachmentServiceTest {
         String agentInput = service.buildAgentInput(3, "帮我记一下", List.of("att_x"));
 
         assertTrue(agentInput.contains("用户消息：帮我记一下"));
-        assertTrue(agentInput.contains("【附件账单识别结果】"));
+        assertTrue(agentInput.contains("【附件账单识别结果｜待用户确认】"));
         assertTrue(agentInput.contains("金额=23.00"));
         assertTrue(agentInput.contains("便利店"));
+        assertTrue(agentInput.contains("本轮严禁调用任何写入类工具"));
+        assertTrue(agentInput.contains("addExpense"));
+        assertFalse(agentInput.contains("完成记账"));
         verify(repository).markReferenced(eq("att_x"), any(Date.class));
     }
 
@@ -155,8 +158,9 @@ class ChatAttachmentServiceTest {
         when(billImageParseService.parseImage(any(), any())).thenReturn(empty);
 
         String agentInput = service.buildAgentInput(1, "  ", List.of("att_y"));
-        assertTrue(agentInput.contains("用户发送了图片"));
+        assertTrue(agentInput.contains("用户发送了账单图片"));
         assertTrue(agentInput.contains("未识别到可记账流水"));
+        assertTrue(agentInput.contains(ChatAttachmentService.CONFIRM_BEFORE_WRITE_INSTRUCTION));
     }
 
     @Test

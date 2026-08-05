@@ -41,7 +41,18 @@ public class ChatAttachmentService {
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
     private static final Set<String> ALLOWED_MIME = Set.of(
             "image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif");
-    private static final String DEFAULT_IMAGE_ONLY_PROMPT = "用户发送了图片，请根据识别结果处理。";
+    private static final String DEFAULT_IMAGE_ONLY_PROMPT = "用户发送了账单图片，请先展示识别结果并等待确认，不要直接记账。";
+
+    /** 附件识别当轮强制先确认、禁止写入的指令（拼进 Agent 用户消息）。 */
+    static final String CONFIRM_BEFORE_WRITE_INSTRUCTION = """
+            【强制指令｜附件识别本轮】
+            1. 本轮严禁调用任何写入类工具：addExpense、addIncome、transferMoney、updateFlow、deleteFlow、repayCreditCard，以及 createAccount、updateAccount、deleteAccount、createType、updateType、deleteType。
+            2. 本轮只做一件事：把下方识别结果整理成待确认清单发给用户，并明确请用户确认或修改；不要落库。
+            3. 允许只读：listAccounts、listActions、listTypesByAction 及查询类工具，用于核对账户/分类名称建议。
+            4. 用户下一条明确确认（如「确认」「记得」「好的」「没问题」）后，再按确认内容调用写入工具；若用户要改金额/日期/账户/分类，按修改后的内容记账。
+            5. 金额与日期以识别结果为准（用户另有修改除外）；用户说「今天」时 explicitDate 仍传空字符串。
+            6. 若未识别到可记账流水，如实告知，禁止编造，禁止调用写入工具。
+            """.trim();
 
     private final ChatAttachmentJdbcRepository repository;
     private final LocalAttachmentStorage storage;
@@ -197,13 +208,11 @@ public class ChatAttachmentService {
         } else {
             sb.append(DEFAULT_IMAGE_ONLY_PROMPT).append("\n\n");
         }
-        sb.append("【附件账单识别结果】\n");
+        sb.append("【附件账单识别结果｜待用户确认】\n");
         for (String block : blocks) {
             sb.append(block).append('\n');
         }
-        sb.append("请根据以上识别结果与用户说明完成记账；金额与日期以识别为准，")
-                .append("账户与分类名需匹配用户账本中的名称后再调用写入工具。")
-                .append("用户说「今天」时 explicitDate 仍传空字符串。");
+        sb.append('\n').append(CONFIRM_BEFORE_WRITE_INSTRUCTION);
         return sb.toString();
     }
 
