@@ -295,6 +295,7 @@ public class ChatSseController {
             }
 
             String agentInput;
+            boolean attachmentConfirmOnly = attachmentIds != null && !attachmentIds.isEmpty();
             try {
                 agentInput = chatAttachmentService.buildAgentInput(
                         session.userId, content, attachmentIds);
@@ -311,9 +312,12 @@ public class ChatSseController {
                 return;
             }
 
+            // 附件识别当轮：硬拦截写入工具，必须先等用户确认
+            AuthContext.setAttachmentConfirmOnly(attachmentConfirmOnly);
             RunnableConfig config = RunnableConfig.builder()
                     .threadId(threadId)
                     .addMetadata(AuthContext.METADATA_USER_ID, session.userId)
+                    .addMetadata(AuthContext.METADATA_ATTACHMENT_CONFIRM_ONLY, attachmentConfirmOnly)
                     .build();
 
             CountDownLatch latch = new CountDownLatch(1);

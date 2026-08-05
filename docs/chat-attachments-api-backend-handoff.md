@@ -26,4 +26,6 @@
 
 开聊时校验附件归属与过期后进入 SSE；在 `started` 之后对每张图调用 `BillImageParseService`，将结构化结果拼入 Agent 文本输入，并标记附件已引用。
 
+**确认后再记账：** 带附件的当轮会附带「禁止写入、先请用户确认」指令；Agent 只展示待确认清单。用户下一条明确确认后，再调用写入工具落库。
+
 配置见 `easyaccount.attachments.*`、`easyaccount.bill-parse.*`。

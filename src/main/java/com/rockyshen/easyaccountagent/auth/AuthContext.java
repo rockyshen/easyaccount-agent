@@ -11,8 +11,11 @@ package com.rockyshen.easyaccountagent.auth;
 public final class AuthContext {
 
     public static final String METADATA_USER_ID = "userId";
+    /** 附件识别当轮：仅允许确认展示，禁止写入工具 */
+    public static final String METADATA_ATTACHMENT_CONFIRM_ONLY = "attachmentConfirmOnly";
 
     private static final ThreadLocal<Integer> USER_ID = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> ATTACHMENT_CONFIRM_ONLY = new ThreadLocal<>();
 
     private AuthContext() {
     }
@@ -33,8 +36,25 @@ public final class AuthContext {
         return USER_ID.get();
     }
 
+    public static void setAttachmentConfirmOnly(Boolean confirmOnly) {
+        if (confirmOnly == null) {
+            ATTACHMENT_CONFIRM_ONLY.remove();
+        } else {
+            ATTACHMENT_CONFIRM_ONLY.set(confirmOnly);
+        }
+    }
+
+    public static boolean isAttachmentConfirmOnly() {
+        return Boolean.TRUE.equals(ATTACHMENT_CONFIRM_ONLY.get());
+    }
+
+    public static Boolean getAttachmentConfirmOnlyOrNull() {
+        return ATTACHMENT_CONFIRM_ONLY.get();
+    }
+
     public static void clear() {
         USER_ID.remove();
+        ATTACHMENT_CONFIRM_ONLY.remove();
     }
 
     /**
