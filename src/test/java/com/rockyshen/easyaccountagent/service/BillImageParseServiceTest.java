@@ -18,6 +18,9 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,6 +83,41 @@ class BillImageParseServiceTest {
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
         verify(qwenVlChatModel).call(promptCaptor.capture());
         assertFalse(promptCaptor.getValue().getInstructions().isEmpty());
+        String today = LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();
+        String promptText = promptCaptor.getValue().getInstructions().get(0).getText();
+        assertTrue(promptText.contains("当前日期：" + today), promptText);
+    }
+
+    @Test
+    void parseAndNormalizeItems_resolvesRelativeChineseDates() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        List<BillParseItemDto> items = service.parseAndNormalizeItems("""
+                {
+                  "items": [
+                    {"handle":1,"money":"10","date":"今天"},
+                    {"handle":1,"money":"11","date":"昨天"},
+                    {"handle":1,"money":"12","date":"前天"},
+                    {"handle":1,"money":"13","date":"今日 14:30"},
+                    {"handle":1,"money":"14","date":"昨日晚上"}
+                  ]
+                }
+                """);
+        assertEquals(5, items.size());
+        assertEquals(today.format(fmt), items.get(0).getDate());
+        assertEquals(today.minusDays(1).format(fmt), items.get(1).getDate());
+        assertEquals(today.minusDays(2).format(fmt), items.get(2).getDate());
+        assertEquals(today.format(fmt), items.get(3).getDate());
+        assertEquals(today.minusDays(1).format(fmt), items.get(4).getDate());
+    }
+
+    @Test
+    void resolveRelativeDate_prefersLongerMatch() {
+        LocalDate today = LocalDate.of(2026, 8, 6);
+        assertEquals(today.minusDays(3), BillImageParseService.resolveRelativeDate("大前天", today));
+        assertEquals(today.minusDays(2), BillImageParseService.resolveRelativeDate("前天", today));
+        assertNull(BillImageParseService.resolveRelativeDate("未知", today));
+        assertNull(BillImageParseService.resolveRelativeDate("", today));
     }
 
     @Test
