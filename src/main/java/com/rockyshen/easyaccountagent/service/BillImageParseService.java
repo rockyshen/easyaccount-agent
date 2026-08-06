@@ -26,6 +26,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -46,6 +47,7 @@ public class BillImageParseService {
     private static final Set<String> ALLOWED_MIME = Set.of(
             "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif",
             "image/heic", "image/heif");
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final Pattern JSON_FENCE = Pattern.compile("(?s)```(?:json)?\\s*(\\{.*?})\\s*```");
     private static final Pattern FIRST_OBJECT = Pattern.compile("(?s)\\{.*}");
@@ -122,7 +124,7 @@ public class BillImageParseService {
         });
 
         UserMessage userMessage = UserMessage.builder()
-                .text(BillParsePrompt.TEXT)
+                .text(BillParsePrompt.textWithCurrentDate())
                 .media(media)
                 .metadata(Map.of(DashScopeApiConstants.MESSAGE_FORMAT, MessageFormat.IMAGE))
                 .build();
@@ -258,7 +260,14 @@ public class BillImageParseService {
         if (!StringUtils.hasText(date)) {
             return "";
         }
-        String trimmed = date.trim()
+        String raw = date.trim();
+        LocalDate today = LocalDate.now(APP_ZONE);
+        LocalDate relative = resolveRelativeDate(raw, today);
+        if (relative != null) {
+            return relative.format(DATE_FMT);
+        }
+
+        String trimmed = raw
                 .replace('年', '-')
                 .replace('月', '-')
                 .replace("日", "")
@@ -280,6 +289,33 @@ public class BillImageParseService {
             }
         }
         return "";
+    }
+
+    /**
+     * 将图中常见相对日期词换算为日历日；无法识别则返回 null。
+     * 先匹配更长词（大前天）再匹配短词（前天）。
+     */
+    static LocalDate resolveRelativeDate(String text, LocalDate today) {
+        if (!StringUtils.hasText(text) || today == null) {
+            return null;
+        }
+        String t = text.trim().replaceAll("\\s+", "");
+        // 去掉常见时间后缀，如「今天14:30」「昨天晚上」
+        t = t.replaceAll("\\d{1,2}:\\d{2}(:\\d{2})?", "");
+        t = t.replaceAll("上午|下午|晚上|凌晨|中午", "");
+        if (t.startsWith("大前天")) {
+            return today.minusDays(3);
+        }
+        if (t.startsWith("前天")) {
+            return today.minusDays(2);
+        }
+        if (t.startsWith("昨天") || t.startsWith("昨日")) {
+            return today.minusDays(1);
+        }
+        if (t.startsWith("今天") || t.startsWith("今日") || t.equals("当天")) {
+            return today;
+        }
+        return null;
     }
 
     private static Double normalizeConfidence(Double confidence) {
