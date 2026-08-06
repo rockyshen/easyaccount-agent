@@ -19,6 +19,9 @@ class EasyAccountsPromptTest {
         assertTrue(EasyAccountsPrompt.TEXT.contains("同一条回复里禁止出现两个不同的"));
         assertTrue(EasyAccountsPrompt.TEXT.contains("附件识别结果必须先确认再写入"));
         assertTrue(EasyAccountsPrompt.TEXT.contains("附件账单识别结果"));
+        assertTrue(EasyAccountsPrompt.TEXT.contains("首次引导"));
+        assertTrue(EasyAccountsPrompt.TEXT.contains("分类 type 为当前用户私有"));
+        assertTrue(EasyAccountsPrompt.TEXT.contains("getOnboardingStatus"));
     }
 
     @Test

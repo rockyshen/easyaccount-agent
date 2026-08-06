@@ -54,16 +54,29 @@ Content-Type: application/json
 {
   "token": "opaque-token-string",
   "expiresAt": "2026-08-23T12:00:00+08:00",
-  "user": { "id": 1, "name": "rocky" }
+  "user": { "id": 1, "name": "rocky" },
+  "onboarding": {
+    "needsOnboarding": true,
+    "hasAccounts": false,
+    "hasTypes": true,
+    "typesSeeded": true
+  }
 }
 ```
+
+说明：
+
+- 注册成功后**不会**自动创建账户；由 Agent 在聊天中引导用户建账户
+- 注册时会为该用户**克隆一份预设分类**（`type` 按用户隔离）；`action`（收入/支出/转账）仍全局共用
+- `needsOnboarding`：当前无活跃账户时为 `true`，建议进聊天完成首次设置
 
 失败：`400` / `409` → `{ "message": "..." }`（如用户名已存在）
 
 ### 2.3 登录
 
 `POST /api/auth/login`  
-Body 同注册。失败 `401` → `{ "message": "用户名或密码错误" }`。
+Body 同注册。失败 `401` → `{ "message": "用户名或密码错误" }`。  
+成功响应同注册（含 `onboarding`）。若存量用户尚无个人分类，登录时会幂等补种。
 
 ### 2.4 免登录检查
 
@@ -73,7 +86,16 @@ Header: `Authorization: Bearer <token>`
 成功 `200`：
 
 ```json
-{ "id": 1, "name": "rocky" }
+{
+  "id": 1,
+  "name": "rocky",
+  "onboarding": {
+    "needsOnboarding": true,
+    "hasAccounts": false,
+    "hasTypes": true,
+    "typesSeeded": true
+  }
+}
 ```
 
 失败 `401`：`{ "message": "未登录或会话已失效" }`
@@ -88,9 +110,10 @@ Header: `Authorization: Bearer <token>`（可缺，服务端仍返回成功）
 ### 2.6 App 启动流程（建议）
 
 1. 读 Keychain token → `GET /api/auth/me`
-2. `200` → 进主页；聊天按需 `POST /api/chat`（SSE，见 `ios-swift-sse-handoff.md`）
-3. `401` → 清 Keychain → 登录页
-4. 任意业务接口 `401` → 同登出，提示「登录已失效 / 已在其他设备登录」
+2. `200` → 进主页；若 `onboarding.needsOnboarding == true`，可在聊天提示「先和助手聊聊，建个账户吧」（**非强制原生向导**）
+3. 聊天按需 `POST /api/chat`（SSE，见 `ios-swift-sse-handoff.md`）；由 Agent 对话引导建账户并确认分类
+4. `401` → 清 Keychain → 登录页
+5. 任意业务接口 `401` → 同登出，提示「登录已失效 / 已在其他设备登录」
 
 ---
 
@@ -249,7 +272,8 @@ UI 建议：
 ## 4. 分类管理
 
 侧栏「分类管理」。需 Bearer。  
-`action` / `type` 为**全局共享**数据（不按用户隔离）。分类支持二级树（一级 + 子级）；删除为**软删/停用**。
+`action` 为**全局共享**（收入/支出/转账，只读列表）。  
+`type` 为**当前登录用户私有**（按 `user_id` 隔离）；注册时会克隆一份预设分类，之后增删改只影响自己。分类支持二级树（一级 + 子级）；删除为**软删/停用**。
 
 ### 4.1 收支类型
 

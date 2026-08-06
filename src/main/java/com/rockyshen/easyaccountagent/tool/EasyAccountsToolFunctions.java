@@ -139,6 +139,10 @@ public final class EasyAccountsToolFunctions {
         return req -> facade.listAccounts();
     }
 
+    public static Function<EmptyRequest, String> getOnboardingStatus(LedgerFacade facade) {
+        return req -> facade.getOnboardingStatus();
+    }
+
     public static Function<EmptyRequest, String> listActions(LedgerFacade facade) {
         return req -> facade.listActions();
     }

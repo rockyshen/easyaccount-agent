@@ -13,7 +13,15 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback listAccountsTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("listAccounts", EasyAccountsToolFunctions.listAccounts(facade))
-                .description("获取所有活跃账户；信用卡会显示可用额度、信用额度和已用额度")
+                .description("获取所有活跃账户；信用卡会显示可用额度、信用额度和已用额度；空列表时需先引导建账户")
+                .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback getOnboardingStatusTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("getOnboardingStatus", EasyAccountsToolFunctions.getOnboardingStatus(facade))
+                .description("获取当前用户首次引导状态：是否需要建账户、是否已有个人分类")
                 .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
                 .build();
     }
@@ -21,7 +29,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback listActionsTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("listActions", EasyAccountsToolFunctions.listActions(facade))
-                .description("获取收支类型列表")
+                .description("获取收支类型列表（全局固定：收入/支出/转账）")
                 .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
                 .build();
     }
@@ -29,7 +37,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback listTypesByActionTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("listTypesByAction", EasyAccountsToolFunctions.listTypesByAction(facade))
-                .description("获取指定收支类型的分类树")
+                .description("获取当前用户在指定收支类型下的分类树（按用户隔离）")
                 .inputType(EasyAccountsToolFunctions.ActionIdRequest.class)
                 .build();
     }

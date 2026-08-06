@@ -62,6 +62,9 @@ easyaccount:
     enabled: ${EASYACCOUNT_AUTH_ENABLED:true}
     token-ttl-days: ${EASYACCOUNT_AUTH_TOKEN_TTL_DAYS:30}
     sliding-renew-days: ${EASYACCOUNT_AUTH_SLIDING_RENEW_DAYS:7}
+  onboarding:
+    clone-types-on-register: ${EASYACCOUNT_ONBOARDING_CLONE_TYPES_ON_REGISTER:true}
+    clone-types-on-login-if-empty: ${EASYACCOUNT_ONBOARDING_CLONE_TYPES_ON_LOGIN_IF_EMPTY:true}
   bill-parse:
     vl-model: ${EASYACCOUNT_BILL_PARSE_VL_MODEL:qwen-vl-plus}
     max-bytes: ${EASYACCOUNT_BILL_PARSE_MAX_BYTES:8388608}

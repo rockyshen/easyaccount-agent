@@ -1,5 +1,6 @@
 package com.rockyshen.easyaccountagent.service;
 
+import com.rockyshen.easyaccountagent.auth.AuthContext;
 import com.rockyshen.easyaccountagent.dao.ActionDao;
 import com.rockyshen.easyaccountagent.dao.TypeDao;
 import com.rockyshen.easyaccountagent.dto.TypeListResponseDto;
@@ -25,12 +26,13 @@ public class TypeService {
 
     @Transactional(readOnly = true)
     public Type queryTypeSingle(int id) {
-        return typeDao.findById(id);
+        return typeDao.findById(id, AuthContext.requireUserId());
     }
 
     @Transactional(readOnly = true)
     public List<TypeListResponseDto> queryTypeByActionId(int actionId) {
-        List<Type> allTypes = typeDao.findByActionIdOrNull(actionId);
+        int userId = AuthContext.requireUserId();
+        List<Type> allTypes = typeDao.findByActionIdOrNull(actionId, userId);
         List<TypeListResponseDto> roots = new ArrayList<>();
         for (Type type : allTypes) {
             if (isRoot(type.getParent())) {
@@ -56,14 +58,20 @@ public class TypeService {
         return roots;
     }
 
+    @Transactional(readOnly = true)
+    public boolean hasActiveTypes(int userId) {
+        return typeDao.countActiveByUserId(userId) > 0;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public Type createType(String tName, Integer actionId, Integer parent) {
+        int userId = AuthContext.requireUserId();
         String name = requireName(tName);
         int resolvedActionId = requireActionId(actionId);
         int resolvedParent = normalizeParent(parent);
 
         if (resolvedParent != ROOT_PARENT) {
-            Type parentType = requireActiveType(resolvedParent);
+            Type parentType = requireActiveType(resolvedParent, userId);
             if (!isRoot(parentType.getParent())) {
                 throw new IllegalArgumentException("仅支持二级分类");
             }
@@ -73,6 +81,7 @@ public class TypeService {
         }
 
         Type type = new Type();
+        type.setUserId(userId);
         type.setTName(name);
         type.setParent(resolvedParent);
         type.setActionId(resolvedActionId);
@@ -86,7 +95,8 @@ public class TypeService {
 
     @Transactional(rollbackFor = Exception.class)
     public Type updateType(int id, String tName, Integer actionId, Integer parent) {
-        Type type = requireActiveType(id);
+        int userId = AuthContext.requireUserId();
+        Type type = requireActiveType(id, userId);
         String name = requireName(tName);
         type.setTName(name);
 
@@ -102,16 +112,14 @@ public class TypeService {
                 throw new IllegalArgumentException("父分类不能是自己");
             }
             if (resolvedParent != ROOT_PARENT) {
-                Type parentType = requireActiveType(resolvedParent);
+                Type parentType = requireActiveType(resolvedParent, userId);
                 if (!isRoot(parentType.getParent())) {
                     throw new IllegalArgumentException("仅支持二级分类");
                 }
-                // 禁止把一级节点挂到自己的子节点下
                 if (isRoot(type.getParent()) && parentType.getParent() != null && parentType.getParent() == id) {
                     throw new IllegalArgumentException("不能将分类挂到自己的子分类下");
                 }
-                // 有子分类的一级节点不可降为二级，否则会形成三级树
-                if (isRoot(type.getParent()) && !typeDao.findByParent(id).isEmpty()) {
+                if (isRoot(type.getParent()) && !typeDao.findByParent(id, userId).isEmpty()) {
                     throw new IllegalArgumentException("请先删除或移动子分类");
                 }
                 if (resolvedActionId != null
@@ -123,9 +131,8 @@ public class TypeService {
             type.setParent(resolvedParent);
         }
 
-        // 一级分类改 actionId 时，同步子分类（与原版一致）
         if (isRoot(type.getParent()) && actionId != null) {
-            for (Type child : typeDao.findByParent(id)) {
+            for (Type child : typeDao.findByParent(id, userId)) {
                 child.setActionId(resolvedActionId);
                 typeDao.update(child);
             }
@@ -140,19 +147,20 @@ public class TypeService {
      */
     @Transactional(rollbackFor = Exception.class)
     public void deleteType(int id) {
-        Type type = requireActiveType(id);
+        int userId = AuthContext.requireUserId();
+        Type type = requireActiveType(id, userId);
         type.setDisable(true);
         typeDao.update(type);
         if (isRoot(type.getParent())) {
-            for (Type child : typeDao.findByParent(id)) {
+            for (Type child : typeDao.findByParent(id, userId)) {
                 child.setDisable(true);
                 typeDao.update(child);
             }
         }
     }
 
-    private Type requireActiveType(int id) {
-        Type type = typeDao.findById(id);
+    private Type requireActiveType(int id, int userId) {
+        Type type = typeDao.findById(id, userId);
         if (type == null || type.isDisable() || Boolean.TRUE.equals(type.getArchive())) {
             throw new NoSuchElementException("分类不存在或已停用");
         }
