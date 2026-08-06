@@ -4,9 +4,11 @@ import com.rockyshen.easyaccountagent.config.ChatAttachmentProperties;
 import com.rockyshen.easyaccountagent.dao.ChatAttachmentJdbcRepository;
 import com.rockyshen.easyaccountagent.dto.BillParseItemDto;
 import com.rockyshen.easyaccountagent.dto.BillParseResultDto;
+import com.rockyshen.easyaccountagent.dto.ChatAttachmentContent;
 import com.rockyshen.easyaccountagent.dto.ChatAttachmentResponseDto;
 import com.rockyshen.easyaccountagent.entity.ChatAttachment;
 import com.rockyshen.easyaccountagent.storage.LocalAttachmentStorage;
+import com.rockyshen.easyaccountagent.util.ImageThumbnailUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -42,6 +44,8 @@ public class ChatAttachmentService {
     private static final Set<String> ALLOWED_MIME = Set.of(
             "image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif");
     private static final String DEFAULT_IMAGE_ONLY_PROMPT = "用户发送了账单图片，请先展示识别结果并等待确认，不要直接记账。";
+    private static final String VARIANT_ORIGINAL = "original";
+    private static final String VARIANT_THUMBNAIL = "thumbnail";
 
     /** 附件识别当轮强制先确认、禁止写入的指令（拼进 Agent 用户消息）。 */
     static final String CONFIRM_BEFORE_WRITE_INSTRUCTION = """
@@ -96,10 +100,26 @@ public class ChatAttachmentService {
 
         String relativePath;
         try {
-            relativePath = storage.write(userId, id, extensionFor(mime), bytes);
+            relativePath = storage.writeOriginal(userId, id, extensionFor(mime), bytes);
         } catch (IOException e) {
             log.error("[ChatAttachment] 写盘失败 userId={} id={}", userId, id, e);
             throw new AttachmentException(HttpStatus.INTERNAL_SERVER_ERROR, "保存附件失败");
+        }
+
+        String thumbPath = null;
+        Integer thumbW = null;
+        Integer thumbH = null;
+        try {
+            var thumbOpt = ImageThumbnailUtil.createJpegThumbnail(
+                    bytes, properties.getThumbMaxEdge(), properties.getThumbJpegQuality());
+            if (thumbOpt.isPresent()) {
+                ImageThumbnailUtil.ThumbResult thumb = thumbOpt.get();
+                thumbPath = storage.writeThumb(userId, id, thumb.jpegBytes());
+                thumbW = thumb.width();
+                thumbH = thumb.height();
+            }
+        } catch (Exception e) {
+            log.warn("[ChatAttachment] 生成缩略图失败 userId={} id={}: {}", userId, id, e.toString());
         }
 
         ChatAttachment att = new ChatAttachment();
@@ -111,6 +131,9 @@ public class ChatAttachmentService {
         att.setWidth(wh[0]);
         att.setHeight(wh[1]);
         att.setStoragePath(relativePath);
+        att.setThumbStoragePath(thumbPath);
+        att.setThumbWidth(thumbW);
+        att.setThumbHeight(thumbH);
         att.setReferenced(false);
         att.setCreatedAt(Date.from(now));
         att.setExpiresAt(Date.from(expires));
@@ -118,7 +141,7 @@ public class ChatAttachmentService {
         try {
             repository.insert(att);
         } catch (Exception e) {
-            storage.deleteQuietly(relativePath);
+            storage.deleteAttachmentQuietly(userId, id, relativePath, thumbPath);
             log.error("[ChatAttachment] 写库失败 userId={} id={}", userId, id, e);
             throw new AttachmentException(HttpStatus.INTERNAL_SERVER_ERROR, "保存附件失败");
         }
@@ -126,8 +149,25 @@ public class ChatAttachmentService {
     }
 
     public ChatAttachmentResponseDto getForUser(int userId, String id) {
-        ChatAttachment att = requireOwned(userId, id);
+        ChatAttachment att = requireOwnedReadable(userId, id);
         return toDto(att);
+    }
+
+    /**
+     * 按 variant 返回图片字节（P0）。
+     *
+     * @param variant thumbnail | original（默认 original）
+     */
+    public ChatAttachmentContent getContent(int userId, String id, String variant) {
+        String resolved = normalizeVariant(variant);
+        ChatAttachment att = requireOwnedReadable(userId, id);
+
+        if (VARIANT_ORIGINAL.equals(resolved)) {
+            byte[] bytes = readOriginalBytes(att);
+            return new ChatAttachmentContent(bytes, att.getMimeType(), VARIANT_ORIGINAL);
+        }
+
+        return loadThumbnailContent(att);
     }
 
     public void deleteForUser(int userId, String id) {
@@ -136,7 +176,7 @@ public class ChatAttachmentService {
             throw new AttachmentException(HttpStatus.CONFLICT, "附件已被引用，无法删除");
         }
         repository.deleteById(id);
-        storage.deleteQuietly(att.getStoragePath());
+        storage.deleteAttachmentQuietly(userId, id, att.getStoragePath(), att.getThumbStoragePath());
     }
 
     /**
@@ -168,11 +208,14 @@ public class ChatAttachmentService {
             if (!"image".equalsIgnoreCase(att.getKind())) {
                 throw new AttachmentException(HttpStatus.BAD_REQUEST, "附件无效或已过期");
             }
+            if (!storage.exists(att.getStoragePath())) {
+                throw new AttachmentException(HttpStatus.BAD_REQUEST, "附件无效或已过期");
+            }
         }
     }
 
     /**
-     * 解析附件为结构化结果，拼进 Agent 文本输入，并标记已引用。
+     * 解析附件为结构化结果，拼进 Agent 文本输入，并标记已引用（长期保留）。
      */
     public String buildAgentInput(int userId, String userContent, List<String> attachmentIds) {
         String text = userContent == null ? "" : userContent.trim();
@@ -183,10 +226,11 @@ public class ChatAttachmentService {
         List<String> blocks = new ArrayList<>();
         int index = 1;
         Date now = new Date();
+        Date longRetainUntil = Date.from(Instant.now().plus(properties.getReferencedRetentionDays(), ChronoUnit.DAYS));
         for (String rawId : attachmentIds) {
             String id = rawId.trim();
             ChatAttachment att = requireOwned(userId, id);
-            if (att.getExpiresAt() != null && att.getExpiresAt().before(now)) {
+            if (att.getExpiresAt() != null && att.getExpiresAt().before(now) && !att.isReferenced()) {
                 throw new AttachmentException(HttpStatus.BAD_REQUEST, "附件无效或已过期");
             }
             byte[] bytes;
@@ -199,7 +243,7 @@ public class ChatAttachmentService {
 
             BillParseResultDto parsed = billImageParseService.parseImage(bytes, att.getMimeType());
             blocks.add(formatParseBlock(index++, id, parsed));
-            repository.markReferenced(id, now);
+            repository.markReferenced(id, now, longRetainUntil);
         }
 
         StringBuilder sb = new StringBuilder();
@@ -219,9 +263,75 @@ public class ChatAttachmentService {
     private ChatAttachment requireOwned(int userId, String id) {
         ChatAttachment att = repository.findById(id);
         if (att == null || att.getUserId() != userId) {
-            throw new AttachmentException(HttpStatus.NOT_FOUND, "附件不存在");
+            throw new AttachmentException(HttpStatus.NOT_FOUND, "附件不存在或已过期");
         }
         return att;
+    }
+
+    /**
+     * 归属校验 + 未引用短 TTL 过期校验（已引用则允许长期访问）。
+     */
+    private ChatAttachment requireOwnedReadable(int userId, String id) {
+        ChatAttachment att = requireOwned(userId, id);
+        if (!att.isReferenced()
+                && att.getExpiresAt() != null
+                && att.getExpiresAt().toInstant().isBefore(Instant.now())) {
+            throw new AttachmentException(HttpStatus.NOT_FOUND, "附件不存在或已过期");
+        }
+        return att;
+    }
+
+    private static String normalizeVariant(String variant) {
+        if (!StringUtils.hasText(variant)) {
+            return VARIANT_ORIGINAL;
+        }
+        String v = variant.trim().toLowerCase(Locale.ROOT);
+        if (VARIANT_ORIGINAL.equals(v) || VARIANT_THUMBNAIL.equals(v)) {
+            return v;
+        }
+        throw new AttachmentException(HttpStatus.BAD_REQUEST, "不支持的 variant");
+    }
+
+    private byte[] readOriginalBytes(ChatAttachment att) {
+        try {
+            return storage.read(att.getStoragePath());
+        } catch (IOException e) {
+            log.error("[ChatAttachment] 读原图失败 id={}", att.getId(), e);
+            throw new AttachmentException(HttpStatus.NOT_FOUND, "附件不存在或已过期");
+        }
+    }
+
+    /**
+     * 确保缩略图可用：已有则读盘；否则实时缩放并回写；无法缩放则退回原图字节（MIME 用原图）。
+     */
+    private ChatAttachmentContent loadThumbnailContent(ChatAttachment att) {
+        if (StringUtils.hasText(att.getThumbStoragePath()) && storage.exists(att.getThumbStoragePath())) {
+            try {
+                return new ChatAttachmentContent(
+                        storage.read(att.getThumbStoragePath()), "image/jpeg", VARIANT_THUMBNAIL);
+            } catch (IOException e) {
+                log.warn("[ChatAttachment] 读缩略图失败 id={}，尝试重生成", att.getId());
+            }
+        }
+
+        byte[] original = readOriginalBytes(att);
+        var thumbOpt = ImageThumbnailUtil.createJpegThumbnail(
+                original, properties.getThumbMaxEdge(), properties.getThumbJpegQuality());
+        if (thumbOpt.isEmpty()) {
+            // 无法解码缩放时临时返回原图，保证预览可用
+            return new ChatAttachmentContent(original, att.getMimeType(), VARIANT_THUMBNAIL);
+        }
+        ImageThumbnailUtil.ThumbResult thumb = thumbOpt.get();
+        try {
+            String path = storage.writeThumb(att.getUserId(), att.getId(), thumb.jpegBytes());
+            repository.updateThumb(att.getId(), path, thumb.width(), thumb.height());
+            att.setThumbStoragePath(path);
+            att.setThumbWidth(thumb.width());
+            att.setThumbHeight(thumb.height());
+        } catch (Exception e) {
+            log.warn("[ChatAttachment] 回写缩略图失败 id={}: {}", att.getId(), e.toString());
+        }
+        return new ChatAttachmentContent(thumb.jpegBytes(), "image/jpeg", VARIANT_THUMBNAIL);
     }
 
     private static String formatParseBlock(int index, String attachmentId, BillParseResultDto parsed) {
@@ -279,10 +389,26 @@ public class ChatAttachmentService {
                 .sizeBytes(att.getSizeBytes())
                 .width(att.getWidth())
                 .height(att.getHeight())
-                .url(null)
+                .thumbWidth(att.getThumbWidth())
+                .thumbHeight(att.getThumbHeight())
+                .url(contentUrl(att.getId(), VARIANT_ORIGINAL))
+                .thumbnailUrl(contentUrl(att.getId(), VARIANT_THUMBNAIL))
                 .expiresAt(formatIso(att.getExpiresAt()))
                 .createdAt(formatIso(att.getCreatedAt()))
                 .build();
+    }
+
+    private String contentUrl(String id, String variant) {
+        String path = "/api/chat/attachments/" + id + "/content?variant=" + variant;
+        String base = properties.getPublicBaseUrl();
+        if (!StringUtils.hasText(base)) {
+            return path;
+        }
+        String trimmed = base.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed + path;
     }
 
     private static String formatIso(Date date) {
@@ -335,7 +461,8 @@ public class ChatAttachmentService {
         int n = 0;
         for (ChatAttachment att : expired) {
             repository.deleteById(att.getId());
-            storage.deleteQuietly(att.getStoragePath());
+            storage.deleteAttachmentQuietly(
+                    att.getUserId(), att.getId(), att.getStoragePath(), att.getThumbStoragePath());
             n++;
         }
         return n;
@@ -346,6 +473,7 @@ public class ChatAttachmentService {
         map.put("maxBytes", properties.getMaxBytes());
         map.put("maxCount", properties.getMaxCount());
         map.put("ttlHours", properties.getTtlHours());
+        map.put("referencedRetentionDays", properties.getReferencedRetentionDays());
         return map;
     }
 }
