@@ -14,6 +14,9 @@ public class ChatAttachment {
     private Integer width;
     private Integer height;
     private String storagePath;
+    private String thumbStoragePath;
+    private Integer thumbWidth;
+    private Integer thumbHeight;
     private boolean referenced;
     private Date createdAt;
     private Date expiresAt;

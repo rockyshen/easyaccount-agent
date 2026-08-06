@@ -12,7 +12,10 @@ public class ChatAttachmentResponseDto {
     private long sizeBytes;
     private Integer width;
     private Integer height;
+    private Integer thumbWidth;
+    private Integer thumbHeight;
     private String url;
+    private String thumbnailUrl;
     private String expiresAt;
     private String createdAt;
 }
