@@ -4,6 +4,7 @@ import com.rockyshen.easyaccountagent.dao.AuthTokenDao;
 import com.rockyshen.easyaccountagent.dao.UserDao;
 import com.rockyshen.easyaccountagent.entity.AuthToken;
 import com.rockyshen.easyaccountagent.entity.User;
+import com.rockyshen.easyaccountagent.service.OnboardingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class AuthService {
     private final UserDao userDao;
     private final AuthTokenDao authTokenDao;
     private final AuthProperties authProperties;
+    private final OnboardingService onboardingService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public record LoginResult(String token, Date expiresAt, AuthenticatedUser user) {
@@ -55,6 +57,7 @@ public class AuthService {
         user.setName(trimmed);
         user.setPassword(password);
         userDao.insert(user);
+        onboardingService.afterRegister(user.getId());
         return login(trimmed, password, userAgent);
     }
 
@@ -67,6 +70,7 @@ public class AuthService {
         if (user == null) {
             throw new AuthException(401, "用户名或密码错误");
         }
+        onboardingService.afterLogin(user.getId());
         // 单端登录：踢掉该用户全部旧会话
         authTokenDao.revokeAllByUserId(user.getId());
 

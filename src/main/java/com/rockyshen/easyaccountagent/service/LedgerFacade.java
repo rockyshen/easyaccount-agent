@@ -27,11 +27,12 @@ public class LedgerFacade {
     private final FlowService flowService;
     private final HomeService homeService;
     private final ScreenService screenService;
+    private final OnboardingService onboardingService;
 
     public String listAccounts() {
         var accounts = accountService.getAllAccount();
         if (accounts.isEmpty()) {
-            return "暂无活跃账户。";
+            return "暂无活跃账户。请先通过对话引导用户创建至少一个账户（例如现金、微信、支付宝），确认名称与初始余额后再 createAccount；未建账户前不要记账。";
         }
         StringBuilder sb = new StringBuilder("账户列表：\n");
         accounts.forEach(a -> {
@@ -188,9 +189,9 @@ public class LedgerFacade {
     public String listTypesByAction(int actionId) {
         List<TypeListResponseDto> types = typeService.queryTypeByActionId(actionId);
         if (types.isEmpty()) {
-            return "该收支类型下暂无分类。";
+            return "该收支类型下暂无分类。可引导用户新增分类，或确认是否已完成首次分类种子。";
         }
-        StringBuilder sb = new StringBuilder("分类树（actionId=" + actionId + "）：\n");
+        StringBuilder sb = new StringBuilder("分类树（actionId=" + actionId + "，仅当前用户）：\n");
         for (TypeListResponseDto parent : types) {
             sb.append(String.format("  父类 id=%d, 名称=%s%n", parent.getId(), parent.getTName()));
             if (parent.getChildrenTypes() != null) {
@@ -200,6 +201,14 @@ public class LedgerFacade {
             }
         }
         return sb.toString();
+    }
+
+    public String getOnboardingStatus() {
+        try {
+            return onboardingService.statusText(com.rockyshen.easyaccountagent.auth.AuthContext.requireUserId());
+        } catch (Exception e) {
+            return "获取引导状态失败：" + e.getMessage();
+        }
     }
 
     public String getMonthlyFlows(int handle, int order, String date) {
