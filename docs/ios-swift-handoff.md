@@ -2,9 +2,11 @@
 
 > 面向：Swift 客户端 Agent / iOS 开发  
 > 后端仓库：`easyaccount-agent`  
-> 文档日期：2026-07-24  
+> 文档日期：2026-07-24（首次引导增量见下方链接）  
 > 状态：**账户管理 / 分类管理 CRUD / 概览分析 REST 已上线**（需部署含本能力的构建）  
 > 侧栏对应：账户管理 · 分类管理 · 概览分析  
+>  
+> **增量（2026-08）：** 首次引导 `onboarding` 字段、分类按用户隔离、Agent 对话建账户 → 见 [`ios-swift-onboarding-types-handoff.md`](./ios-swift-onboarding-types-handoff.md)  
 
 ---
 
