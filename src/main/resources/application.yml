@@ -69,4 +69,11 @@ easyaccount:
     max-bytes: ${EASYACCOUNT_ATTACHMENTS_MAX_BYTES:8388608}
     max-count: ${EASYACCOUNT_ATTACHMENTS_MAX_COUNT:9}
     ttl-hours: ${EASYACCOUNT_ATTACHMENTS_TTL_HOURS:24}
+    # 开聊引用后长期保留（天），建议 ≥ 90
+    referenced-retention-days: ${EASYACCOUNT_ATTACHMENTS_REFERENCED_RETENTION_DAYS:365}
     storage-dir: ${EASYACCOUNT_ATTACHMENTS_DIR:./data/chat-attachments}
+    # 拼 url/thumbnailUrl；空则返回相对路径
+    public-base-url: ${EASYACCOUNT_ATTACHMENTS_PUBLIC_BASE_URL:}
+    thumb-max-edge: ${EASYACCOUNT_ATTACHMENTS_THUMB_MAX_EDGE:256}
+    thumb-jpeg-quality: ${EASYACCOUNT_ATTACHMENTS_THUMB_JPEG_QUALITY:0.75}
+    gc-interval-ms: ${EASYACCOUNT_ATTACHMENTS_GC_INTERVAL_MS:3600000}

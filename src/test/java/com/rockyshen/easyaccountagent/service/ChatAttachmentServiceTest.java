@@ -4,6 +4,7 @@ import com.rockyshen.easyaccountagent.config.ChatAttachmentProperties;
 import com.rockyshen.easyaccountagent.dao.ChatAttachmentJdbcRepository;
 import com.rockyshen.easyaccountagent.dto.BillParseItemDto;
 import com.rockyshen.easyaccountagent.dto.BillParseResultDto;
+import com.rockyshen.easyaccountagent.dto.ChatAttachmentContent;
 import com.rockyshen.easyaccountagent.dto.ChatAttachmentResponseDto;
 import com.rockyshen.easyaccountagent.entity.ChatAttachment;
 import com.rockyshen.easyaccountagent.storage.LocalAttachmentStorage;
@@ -17,6 +18,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -48,6 +54,8 @@ class ChatAttachmentServiceTest {
         properties.setMaxBytes(1024 * 1024);
         properties.setMaxCount(9);
         properties.setTtlHours(24);
+        properties.setReferencedRetentionDays(90);
+        properties.setPublicBaseUrl("http://example.test:6088");
         properties.setStorageDir(tempDir.toString());
         storage = new LocalAttachmentStorage(properties);
         storage.init();
@@ -55,24 +63,39 @@ class ChatAttachmentServiceTest {
     }
 
     @Test
-    void upload_persistsMetadataAndReturnsDto() throws Exception {
+    void upload_persistsMetadataAndReturnsDtoWithUrls() throws Exception {
+        byte[] jpeg = sampleJpeg(400, 300);
         MockMultipartFile file = new MockMultipartFile(
-                "file", "a.jpg", "image/jpeg", new byte[] {(byte) 0xFF, (byte) 0xD8, 1, 2, 3});
+                "file", "a.jpg", "image/jpeg", jpeg);
 
         ChatAttachmentResponseDto dto = service.upload(7, file, "image");
 
         assertTrue(dto.getId().startsWith("att_"));
         assertEquals("image", dto.getKind());
         assertEquals("image/jpeg", dto.getMimeType());
-        assertEquals(5, dto.getSizeBytes());
+        assertEquals(jpeg.length, dto.getSizeBytes());
+        assertEquals(400, dto.getWidth());
+        assertEquals(300, dto.getHeight());
+        assertNotNull(dto.getThumbWidth());
+        assertNotNull(dto.getThumbHeight());
+        assertTrue(dto.getThumbWidth() <= 256);
+        assertTrue(dto.getThumbHeight() <= 256);
+        assertTrue(dto.getUrl().contains("/content?variant=original"));
+        assertTrue(dto.getThumbnailUrl().contains("/content?variant=thumbnail"));
+        assertTrue(dto.getUrl().startsWith("http://example.test:6088/"));
         assertNotNull(dto.getExpiresAt());
         assertNotNull(dto.getCreatedAt());
 
         ArgumentCaptor<ChatAttachment> captor = ArgumentCaptor.forClass(ChatAttachment.class);
         verify(repository).insert(captor.capture());
-        assertEquals(7, captor.getValue().getUserId());
-        assertFalse(captor.getValue().isReferenced());
-        assertTrue(storage.resolve(captor.getValue().getStoragePath()).toFile().exists());
+        ChatAttachment saved = captor.getValue();
+        assertEquals(7, saved.getUserId());
+        assertFalse(saved.isReferenced());
+        assertTrue(storage.resolve(saved.getStoragePath()).toFile().exists());
+        assertNotNull(saved.getThumbStoragePath());
+        assertTrue(storage.resolve(saved.getThumbStoragePath()).toFile().exists());
+        assertTrue(saved.getStoragePath().contains("/original"));
+        assertTrue(saved.getThumbStoragePath().endsWith("/thumb.jpg"));
     }
 
     @Test
@@ -92,6 +115,82 @@ class ChatAttachmentServiceTest {
         AttachmentException ex = assertThrows(AttachmentException.class,
                 () -> service.upload(1, file, null));
         assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, ex.getStatus());
+    }
+
+    @Test
+    void getContent_returnsOriginalAndThumbnail() throws Exception {
+        byte[] jpeg = sampleJpeg(320, 240);
+        ChatAttachment att = baseAtt("att_c", 1);
+        att.setStoragePath(storage.writeOriginal(1, "att_c", ".jpg", jpeg));
+        att.setThumbStoragePath(storage.writeThumb(1, "att_c", sampleJpeg(160, 120)));
+        att.setThumbWidth(160);
+        att.setThumbHeight(120);
+        when(repository.findById("att_c")).thenReturn(att);
+
+        ChatAttachmentContent original = service.getContent(1, "att_c", "original");
+        assertEquals("image/jpeg", original.mimeType());
+        assertArrayEquals(jpeg, original.bytes());
+
+        ChatAttachmentContent thumb = service.getContent(1, "att_c", "thumbnail");
+        assertEquals("image/jpeg", thumb.mimeType());
+        assertTrue(thumb.bytes().length > 0);
+        assertNotEquals(jpeg.length, thumb.bytes().length);
+    }
+
+    @Test
+    void getContent_generatesThumbOnDemandWhenMissing() throws Exception {
+        byte[] jpeg = sampleJpeg(500, 400);
+        ChatAttachment att = baseAtt("att_d", 2);
+        att.setStoragePath(storage.writeOriginal(2, "att_d", ".jpg", jpeg));
+        att.setThumbStoragePath(null);
+        when(repository.findById("att_d")).thenReturn(att);
+
+        ChatAttachmentContent thumb = service.getContent(2, "att_d", "thumbnail");
+        assertEquals("image/jpeg", thumb.mimeType());
+        assertTrue(thumb.bytes().length > 0);
+        verify(repository).updateThumb(eq("att_d"), contains("thumb.jpg"), anyInt(), anyInt());
+    }
+
+    @Test
+    void getContent_rejectsInvalidVariantAndCrossUser() throws Exception {
+        ChatAttachment att = baseAtt("att_e", 9);
+        att.setStoragePath(storage.writeOriginal(9, "att_e", ".jpg", sampleJpeg(10, 10)));
+        when(repository.findById("att_e")).thenReturn(att);
+
+        AttachmentException badVariant = assertThrows(AttachmentException.class,
+                () -> service.getContent(9, "att_e", "full"));
+        assertEquals(HttpStatus.BAD_REQUEST, badVariant.getStatus());
+        assertEquals("不支持的 variant", badVariant.getMessage());
+
+        AttachmentException cross = assertThrows(AttachmentException.class,
+                () -> service.getContent(1, "att_e", "original"));
+        assertEquals(HttpStatus.NOT_FOUND, cross.getStatus());
+    }
+
+    @Test
+    void getContent_allowsReferencedPastShortTtl() throws Exception {
+        byte[] jpeg = sampleJpeg(20, 20);
+        ChatAttachment att = baseAtt("att_f", 1);
+        att.setReferenced(true);
+        att.setExpiresAt(Date.from(Instant.now().minus(2, ChronoUnit.HOURS)));
+        att.setStoragePath(storage.writeOriginal(1, "att_f", ".jpg", jpeg));
+        when(repository.findById("att_f")).thenReturn(att);
+
+        ChatAttachmentContent content = service.getContent(1, "att_f", "original");
+        assertArrayEquals(jpeg, content.bytes());
+    }
+
+    @Test
+    void getContent_rejectsExpiredUnreferenced() throws Exception {
+        ChatAttachment att = baseAtt("att_g", 1);
+        att.setReferenced(false);
+        att.setExpiresAt(Date.from(Instant.now().minus(1, ChronoUnit.HOURS)));
+        att.setStoragePath(storage.writeOriginal(1, "att_g", ".jpg", sampleJpeg(8, 8)));
+        when(repository.findById("att_g")).thenReturn(att);
+
+        AttachmentException ex = assertThrows(AttachmentException.class,
+                () -> service.getContent(1, "att_g", "original"));
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
     }
 
     @Test
@@ -120,9 +219,9 @@ class ChatAttachmentServiceTest {
     }
 
     @Test
-    void buildAgentInput_parsesAndMarksReferenced() throws Exception {
+    void buildAgentInput_parsesAndMarksReferencedWithLongRetention() throws Exception {
         ChatAttachment att = baseAtt("att_x", 3);
-        String relative = storage.write(3, "att_x", ".jpg", new byte[] {9, 9, 9});
+        String relative = storage.writeOriginal(3, "att_x", ".jpg", new byte[] {9, 9, 9});
         att.setStoragePath(relative);
         when(repository.findById("att_x")).thenReturn(att);
 
@@ -145,13 +244,18 @@ class ChatAttachmentServiceTest {
         assertTrue(agentInput.contains("本轮严禁调用任何写入类工具"));
         assertTrue(agentInput.contains("addExpense"));
         assertFalse(agentInput.contains("完成记账"));
-        verify(repository).markReferenced(eq("att_x"), any(Date.class));
+
+        ArgumentCaptor<Date> expiresCaptor = ArgumentCaptor.forClass(Date.class);
+        verify(repository).markReferenced(eq("att_x"), any(Date.class), expiresCaptor.capture());
+        Instant expires = expiresCaptor.getValue().toInstant();
+        assertTrue(expires.isAfter(Instant.now().plus(80, ChronoUnit.DAYS)));
+        assertTrue(expires.isBefore(Instant.now().plus(100, ChronoUnit.DAYS)));
     }
 
     @Test
     void buildAgentInput_imageOnlyUsesDefaultPrompt() throws Exception {
         ChatAttachment att = baseAtt("att_y", 1);
-        att.setStoragePath(storage.write(1, "att_y", ".jpg", new byte[] {1}));
+        att.setStoragePath(storage.writeOriginal(1, "att_y", ".jpg", new byte[] {1}));
         when(repository.findById("att_y")).thenReturn(att);
         BillParseResultDto empty = new BillParseResultDto();
         empty.setItems(List.of());
@@ -181,10 +285,23 @@ class ChatAttachmentServiceTest {
         att.setKind("image");
         att.setMimeType("image/jpeg");
         att.setSizeBytes(3);
-        att.setStoragePath("u-" + userId + "/" + id + ".jpg");
+        att.setStoragePath("u-" + userId + "/" + id + "/original.jpg");
         att.setReferenced(false);
         att.setCreatedAt(new Date());
         att.setExpiresAt(Date.from(Instant.now().plus(12, ChronoUnit.HOURS)));
         return att;
+    }
+
+    private static byte[] sampleJpeg(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setColor(Color.BLUE);
+        g.fillRect(0, 0, width, height);
+        g.setColor(Color.WHITE);
+        g.fillRect(width / 4, height / 4, width / 2, height / 2);
+        g.dispose();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpg", bos);
+        return bos.toByteArray();
     }
 }
