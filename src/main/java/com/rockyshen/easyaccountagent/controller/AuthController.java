@@ -5,6 +5,7 @@ import com.rockyshen.easyaccountagent.auth.AuthService;
 import com.rockyshen.easyaccountagent.auth.AuthenticatedUser;
 import com.rockyshen.easyaccountagent.dto.LoginRequestDto;
 import com.rockyshen.easyaccountagent.metrics.AgentMetrics;
+import com.rockyshen.easyaccountagent.service.OnboardingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final AgentMetrics agentMetrics;
+    private final OnboardingService onboardingService;
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody LoginRequestDto body,
@@ -81,10 +83,11 @@ public class AuthController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id", user.get().getId());
         body.put("name", user.get().getName());
+        body.put("onboarding", onboardingService.status(user.get().getId()));
         return ResponseEntity.ok(body);
     }
 
-    private static Map<String, Object> loginResponse(AuthService.LoginResult result) {
+    private Map<String, Object> loginResponse(AuthService.LoginResult result) {
         Map<String, Object> user = new LinkedHashMap<>();
         user.put("id", result.user().getId());
         user.put("name", result.user().getName());
@@ -92,6 +95,7 @@ public class AuthController {
         resp.put("token", result.token());
         resp.put("expiresAt", result.expiresAt().toInstant().atZone(ZoneId.systemDefault()).format(ISO));
         resp.put("user", user);
+        resp.put("onboarding", onboardingService.status(result.user().getId()));
         return resp;
     }
 }

@@ -62,6 +62,16 @@ public class FlowService {
 
     private Flow setNewFlow(FlowAddRequestDto flowAddRequestDto) throws Exception {
         Action action = actionService.getAction(flowAddRequestDto.getActionId());
+        if (action == null) {
+            throw new Exception("收支类型不存在");
+        }
+        Type type = typeService.queryTypeSingle(flowAddRequestDto.getTypeId());
+        if (type == null || type.isDisable() || Boolean.TRUE.equals(type.getArchive())) {
+            throw new Exception("分类不存在或不属于当前用户");
+        }
+        if (type.getActionId() != null && type.getActionId() != flowAddRequestDto.getActionId()) {
+            throw new Exception("分类与收支类型不匹配");
+        }
         Account account = accountService.getOriginAccountById(flowAddRequestDto.getAccountId());
         if (account == null) {
             throw new Exception("账户不存在或不属于当前用户");
@@ -219,10 +229,14 @@ public class FlowService {
         Action action = actionService.getAction(flow.getActionId());
         Type type = typeService.queryTypeSingle(flow.getTypeId());
         TypeListResponseDto typeListResponseDto = new TypeListResponseDto();
-        typeListResponseDto.convertToDto(type);
-        if (type.getParent() != -1) {
-            Type parentType = typeService.queryTypeSingle(type.getParent());
-            typeListResponseDto.setTName(parentType.getTName() + "——" + type.getTName());
+        if (type != null) {
+            typeListResponseDto.convertToDto(type);
+            if (type.getParent() != null && type.getParent() != -1 && type.getParent() != 0) {
+                Type parentType = typeService.queryTypeSingle(type.getParent());
+                if (parentType != null) {
+                    typeListResponseDto.setTName(parentType.getTName() + "——" + type.getTName());
+                }
+            }
         }
         if (action.getHandle() == ContentValues.ACTION_INNER) {
             Account toAccount = accountService.getOriginAccountById(flow.getAccountToId());

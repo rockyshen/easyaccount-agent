@@ -52,7 +52,7 @@ public class ChatAttachmentService {
             【强制指令｜附件识别本轮】
             1. 本轮严禁调用任何写入类工具：addExpense、addIncome、transferMoney、updateFlow、deleteFlow、repayCreditCard，以及 createAccount、updateAccount、deleteAccount、createType、updateType、deleteType。
             2. 本轮只做一件事：把下方识别结果整理成待确认清单发给用户，并明确请用户确认或修改；不要落库。
-            3. 允许只读：listAccounts、listActions、listTypesByAction 及查询类工具，用于核对账户/分类名称建议。
+            3. 允许只读：getOnboardingStatus、listAccounts、listActions、listTypesByAction 及查询类工具，用于核对账户/分类名称建议。
             4. 用户下一条明确确认（如「确认」「记得」「好的」「没问题」）后，再按确认内容调用写入工具；若用户要改金额/日期/账户/分类，按修改后的内容记账。
             5. 金额与日期以识别结果为准（用户另有修改除外）；用户说「今天」时 explicitDate 仍传空字符串。
             6. 若未识别到可记账流水，如实告知，禁止编造，禁止调用写入工具。

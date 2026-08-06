@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class Type {
     private int id;
+    private Integer userId;
     private String tName;
     private Integer parent = -1;
     private boolean disable = false;

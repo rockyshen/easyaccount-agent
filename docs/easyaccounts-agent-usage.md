@@ -22,7 +22,8 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 
 1. `scripts/alter_account_type.sql`（信用卡 `account_type`，若未执行过）
 2. `scripts/alter_auth_and_user_isolation.sql`（`auth_token`、清空测试账本、`user_id`）
-3. `scripts/chat_stream_ddl.sql`（SSE 断点续传；应用启动也会 `CREATE IF NOT EXISTS`）
+3. `scripts/alter_type_user_isolation.sql`（`type.user_id`、`type_template`；应用启动也会尝试自动加列/建表并种子）
+4. `scripts/chat_stream_ddl.sql`（SSE 断点续传；应用启动也会 `CREATE IF NOT EXISTS`）
 
 对话记忆表 `GRAPH_THREAD` / `GRAPH_CHECKPOINT` 由应用启动时 `MysqlSaver`（`CREATE_IF_NOT_EXISTS`）自动创建，一般无需手工 DDL。若运维希望与应用解耦，可参考 `scripts/graph_checkpoint_ddl.sql`。
 
@@ -40,7 +41,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `PUT /api/accounts/{id}` | 更新账户，body: `{ name?, card?, note?, exemptMoney? }` |
 | `DELETE /api/accounts/{id}` | 软删除账户 |
 | `GET /api/actions` | 收支类型列表（全局只读） |
-| `GET /api/types?actionId=` | 某收支类型下的分类树 |
+| `GET /api/types?actionId=` | 当前用户在该收支类型下的分类树（按用户隔离） |
 | `POST /api/types` · `POST /api/types/create` | 创建分类（两路径同源），body: `{ tname, actionId, parent? }` |
 | `PUT /api/types/{id}` | 更新分类，body: `{ tname, actionId?, parent? }` |
 | `DELETE /api/types/{id}` | 软删/停用分类（一级会级联停用子分类） |
@@ -51,7 +52,8 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `GET /api/chat/streams/{streamId}/status` | 流状态 JSON |
 
 业务 REST（accounts / actions / types / dashboard / chat）均需 `Authorization: Bearer {token}`；失败多为 `{ "message": "..." }`。  
-分类为全局共享；删除为**软删**（`t_disable=true`），列表不再返回。  
+`action` 全局只读；`type` **按用户隔离**（注册时克隆预设模板）；删除为**软删**（`t_disable=true`），列表不再返回。  
+新用户无默认账户，由 Agent 对话引导创建。  
 `WS /ws` **已下线**，请改用 `POST /api/chat`。  
 客户端断线**不会**取消生成；仅 cancel 接口会停止并释放 busy。
 
@@ -83,7 +85,9 @@ curl -s http://localhost:8088/api/auth/me -H "Authorization: Bearer $TOKEN"
 ReactAgent → Tools → LedgerFacade → *Service → MyBatis → MySQL (`yd_jz`)
 
 - 流水写入必须走 `FlowService`
-- `account` / `flow` 按 `user_id` 隔离；`action` / `type` 全局共享
+- `account` / `flow` / `type` 按 `user_id` 隔离；`action` 全局共享（收入/支出/转账）
+- 注册克隆预设分类；账户由 Agent 对话引导创建（不静默建默认账户）
+- 可选执行 `scripts/alter_type_user_isolation.sql`；应用启动也会尝试加列/建 `type_template`
 
 ## 对话记忆（跨重启）
 
