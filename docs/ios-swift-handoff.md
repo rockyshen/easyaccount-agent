@@ -281,13 +281,13 @@ UI 建议：
 
 `GET /api/actions`
 
-成功 `200`：
+成功 `200`：**仅返回 3 条常用项**（收入 / 支出 / 内部转账）。借入、还钱、借出、收钱等历史扩展项已在服务端过滤，**不要再本地拼多余 Tab**。
 
 ```json
 [
-  { "id": 1, "hname": "收入", "exempt": false, "handle": 0 },
-  { "id": 2, "hname": "支出", "exempt": false, "handle": 1 },
-  { "id": 3, "hname": "转账", "exempt": false, "handle": 2 }
+  { "id": 15, "hname": "收入", "exempt": false, "handle": 0 },
+  { "id": 16, "hname": "支出", "exempt": false, "handle": 1 },
+  { "id": 17, "hname": "内部转账", "exempt": false, "handle": 2 }
 ]
 ```
 
@@ -295,9 +295,11 @@ UI 建议：
 |--------|------|
 | `0` | 收入 |
 | `1` | 支出 |
-| `2` | 转账/内部 |
+| `2` | 内部转账 |
 
-> JSON 字段名为 `hname`（小写）；Swift 侧请用 `CodingKeys` 映射到 `hName`。
+> JSON 字段名为 `hname`（小写）；Swift 侧请用 `CodingKeys` 映射到 `hName`。  
+> **id 以接口返回为准**，禁止写死 `1/2/3`。  
+> 响应带 `Cache-Control: private, max-age=604800`（7 天），适合本地持久化缓存。
 
 ### 4.2 分类树（列表）
 
@@ -408,7 +410,21 @@ struct UpdateTypeRequest: Codable, Sendable {
 }
 ```
 
-页面流程建议：先拉 `/api/actions` → 用户点选某一 `action` → 再拉 `/api/types?actionId=` 展示树；新建走 `POST /api/types` 或 `/api/types/create`，编辑/删除分别走 `PUT` / `DELETE /api/types/{id}`。
+页面流程建议：
+
+1. 拉 `/api/actions`（仅 3 个 Tab：收入 / 支出 / 内部转账）→ **本地缓存**（见下）
+2. 用户点选某一 `action` → 再拉 `/api/types?actionId=` 展示树（可按 `actionId` 缓存）
+3. 新建走 `POST /api/types`，编辑/删除走 `PUT` / `DELETE /api/types/{id}`；成功后**失效**对应 `actionId` 的本地缓存并刷新
+
+**UI：** 顶部 Segment/Tab 只用接口返回的 3 项；分类列表卡片与账户等子页保持同一边距/圆角，**不要**在列表上方再放「这些分类只属于你…」一类提示条。
+
+**本地存储优化（分类不常变）：**
+
+| 数据 | 建议 | 失效时机 |
+|------|------|----------|
+| `actions` | `UserDefaults` / 文件缓存整表；TTL 可跟 7 天或直到登出 | 登出；或拉取失败时回退旧缓存 |
+| `types[actionId]` | 按用户 + actionId 缓存树；TTL 约 1 小时（与响应 `Cache-Control` 一致） | 本端 create/update/delete 成功后；下拉刷新；切换账号 |
+| 内存 | 进页先读缓存秒开，再后台静默刷新 | — |
 
 ---
 

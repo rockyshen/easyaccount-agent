@@ -6,12 +6,14 @@ import com.rockyshen.easyaccountagent.dto.UpdateTypeRequestDto;
 import com.rockyshen.easyaccountagent.entity.Type;
 import com.rockyshen.easyaccountagent.service.TypeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/types")
@@ -26,7 +28,10 @@ public class TypeController {
             return ResponseEntity.badRequest().body(Map.of("message", "actionId 不能为空"));
         }
         List<TypeListResponseDto> types = typeService.queryTypeByActionId(actionId);
-        return ResponseEntity.ok(types);
+        // 个人分类变更不频繁；客户端可本地缓存，增删改后自行失效
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(1, TimeUnit.HOURS).cachePrivate().mustRevalidate())
+                .body(types);
     }
 
     /** 推荐路径，与账户 API 风格一致 */
