@@ -46,6 +46,7 @@ public class EasyAccountsAgentConfig {
     List<ToolCallback> easyAccountToolCallbacks(
             @Qualifier("listAccountsTool") ToolCallback listAccountsTool,
             @Qualifier("getOnboardingStatusTool") ToolCallback getOnboardingStatusTool,
+            @Qualifier("listAllUserTypesTool") ToolCallback listAllUserTypesTool,
             @Qualifier("listActionsTool") ToolCallback listActionsTool,
             @Qualifier("listTypesByActionTool") ToolCallback listTypesByActionTool,
             @Qualifier("getMonthlyFlowsTool") ToolCallback getMonthlyFlowsTool,
@@ -66,7 +67,8 @@ public class EasyAccountsAgentConfig {
             @Qualifier("deleteTypeTool") ToolCallback deleteTypeTool,
             @Qualifier("repayCreditCardTool") ToolCallback repayCreditCardTool) {
         return List.of(
-                listAccountsTool, getOnboardingStatusTool, listActionsTool, listTypesByActionTool,
+                listAccountsTool, getOnboardingStatusTool, listAllUserTypesTool,
+                listActionsTool, listTypesByActionTool,
                 getMonthlyFlowsTool, searchFlowsTool, getFlowDetailTool, getDashboardTool,
                 addExpenseTool, addIncomeTool, transferMoneyTool,
                 updateFlowTool, deleteFlowTool, toggleFavoriteTool,

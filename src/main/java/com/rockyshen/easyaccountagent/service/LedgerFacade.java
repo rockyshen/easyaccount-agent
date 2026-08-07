@@ -189,7 +189,8 @@ public class LedgerFacade {
     public String listTypesByAction(int actionId) {
         List<TypeListResponseDto> types = typeService.queryTypeByActionId(actionId);
         if (types.isEmpty()) {
-            return "该收支类型下暂无分类。可引导用户新增分类，或确认是否已完成首次分类种子。";
+            return "该收支类型下暂无分类。注意：actionId 必须以 listActions 返回为准，禁止假设为 1/2/3。"
+                    + "若不确定，请改用 listAllUserTypes。";
         }
         StringBuilder sb = new StringBuilder("分类树（actionId=" + actionId + "，仅当前用户）：\n");
         for (TypeListResponseDto parent : types) {
@@ -203,9 +204,50 @@ public class LedgerFacade {
         return sb.toString();
     }
 
+    /**
+     * 列出当前用户全部个人分类（按 action 分组）。回答「有哪些分类」时优先用此工具，
+     * 避免误用固定 actionId=1/2/3 导致空结果。
+     */
+    public String listAllUserTypes() {
+        List<Action> actions = actionService.getActions();
+        if (actions.isEmpty()) {
+            return "暂无收支类型。";
+        }
+        StringBuilder sb = new StringBuilder("当前用户个人分类（注册时可能已克隆预设，勿说没有预设）：\n");
+        int totalRoots = 0;
+        for (Action action : actions) {
+            List<TypeListResponseDto> roots = typeService.queryTypeByActionId(action.getId());
+            if (roots.isEmpty()) {
+                continue;
+            }
+            totalRoots += roots.size();
+            sb.append(String.format("[%s] actionId=%d handle=%d%n",
+                    action.getHName(), action.getId(), action.getHandle()));
+            for (TypeListResponseDto parent : roots) {
+                sb.append(String.format("  - %s", parent.getTName()));
+                if (parent.getChildrenTypes() != null && !parent.getChildrenTypes().isEmpty()) {
+                    StringJoiner children = new StringJoiner("、");
+                    for (TypeListResponseDto child : parent.getChildrenTypes()) {
+                        children.add(child.getTName());
+                    }
+                    sb.append("（").append(children).append("）");
+                }
+                sb.append('\n');
+            }
+        }
+        if (totalRoots == 0) {
+            return "当前用户暂无个人分类。可引导用户新增；新用户注册后通常已有预设，若仍为空可提示稍后重试。";
+        }
+        sb.append("共 ").append(totalRoots).append(" 个一级分类。回答用户时用上述真实名称，禁止编造「没有预设分类」。");
+        return sb.toString();
+    }
+
     public String getOnboardingStatus() {
         try {
-            return onboardingService.statusText(com.rockyshen.easyaccountagent.auth.AuthContext.requireUserId());
+            String status = onboardingService.statusText(
+                    com.rockyshen.easyaccountagent.auth.AuthContext.requireUserId());
+            // 附带分类摘要，减少模型在未 listTypes 时误判「没有预设」
+            return status + "\n" + listAllUserTypes();
         } catch (Exception e) {
             return "获取引导状态失败：" + e.getMessage();
         }
