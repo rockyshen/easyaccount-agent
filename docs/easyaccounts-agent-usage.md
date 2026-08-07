@@ -40,7 +40,7 @@ Pi 部署：在 `deploy/.env.docker.pi`（不提交 Git）中配置，参考 `de
 | `POST /api/accounts` | 创建账户，body: `{ name, initialMoney, card?, note?, accountType }` |
 | `PUT /api/accounts/{id}` | 更新账户，body: `{ name?, card?, note?, exemptMoney? }` |
 | `DELETE /api/accounts/{id}` | 软删除账户 |
-| `GET /api/actions` | 收支类型列表（全局只读） |
+| `GET /api/actions` | 仅收入/支出/内部转账（全局只读；可缓存 7 天） |
 | `GET /api/types?actionId=` | 当前用户在该收支类型下的分类树（按用户隔离） |
 | `POST /api/types` · `POST /api/types/create` | 创建分类（两路径同源），body: `{ tname, actionId, parent? }` |
 | `PUT /api/types/{id}` | 更新分类，body: `{ tname, actionId?, parent? }` |
