@@ -20,8 +20,9 @@ class EasyAccountsPromptTest {
         assertTrue(EasyAccountsPrompt.TEXT.contains("附件识别结果必须先确认再写入"));
         assertTrue(EasyAccountsPrompt.TEXT.contains("附件账单识别结果"));
         assertTrue(EasyAccountsPrompt.TEXT.contains("首次引导"));
-        assertTrue(EasyAccountsPrompt.TEXT.contains("分类 type 为当前用户私有"));
-        assertTrue(EasyAccountsPrompt.TEXT.contains("getOnboardingStatus"));
+        assertTrue(EasyAccountsPrompt.TEXT.contains("listAllUserTypes"));
+        assertTrue(EasyAccountsPrompt.TEXT.contains("禁止假设为 1/2/3"));
+        assertTrue(EasyAccountsPrompt.TEXT.contains("未查工具就声称没有预设分类"));
     }
 
     @Test

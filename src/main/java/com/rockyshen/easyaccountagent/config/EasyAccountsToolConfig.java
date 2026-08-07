@@ -21,7 +21,15 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback getOnboardingStatusTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("getOnboardingStatus", EasyAccountsToolFunctions.getOnboardingStatus(facade))
-                .description("获取当前用户首次引导状态：是否需要建账户、是否已有个人分类")
+                .description("获取当前用户首次引导状态，并附带个人分类摘要；回答有无预设分类前应先调用")
+                .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
+                .build();
+    }
+
+    @Bean
+    ToolCallback listAllUserTypesTool(LedgerFacade facade) {
+        return FunctionToolCallback.builder("listAllUserTypes", EasyAccountsToolFunctions.listAllUserTypes(facade))
+                .description("列出当前用户全部个人分类（按收支类型分组）。用户问「有哪些分类/常用分类」时优先用此工具；不要假设 actionId=1/2/3")
                 .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
                 .build();
     }
@@ -29,7 +37,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback listActionsTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("listActions", EasyAccountsToolFunctions.listActions(facade))
-                .description("获取收支类型列表（全局固定：收入/支出/转账）")
+                .description("获取收支类型列表（全局：收入/支出/转账等）；actionId 以返回为准，禁止写死 1/2/3")
                 .inputType(EasyAccountsToolFunctions.EmptyRequest.class)
                 .build();
     }
@@ -37,7 +45,7 @@ public class EasyAccountsToolConfig {
     @Bean
     ToolCallback listTypesByActionTool(LedgerFacade facade) {
         return FunctionToolCallback.builder("listTypesByAction", EasyAccountsToolFunctions.listTypesByAction(facade))
-                .description("获取当前用户在指定收支类型下的分类树（按用户隔离）")
+                .description("获取当前用户在指定 actionId 下的分类树；actionId 必须来自 listActions，禁止假设为 1/2/3")
                 .inputType(EasyAccountsToolFunctions.ActionIdRequest.class)
                 .build();
     }
